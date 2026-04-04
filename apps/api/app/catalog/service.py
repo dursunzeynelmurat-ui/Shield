@@ -6,8 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import MerchantOffer, Product
+from app.cache import cached
 
 
+@cached(ttl=60)
 async def search_products(
     db: AsyncSession,
     q: str | None,
@@ -46,6 +48,7 @@ async def search_products(
     }
 
 
+@cached(ttl=120)
 async def get_product_detail(db: AsyncSession, product_id: int) -> Product | None:
     stmt = (
         select(Product)

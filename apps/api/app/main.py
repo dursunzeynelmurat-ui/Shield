@@ -6,6 +6,8 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.rate_limit import limiter
+from app.compression import add_compression_middleware
+from app.cache import add_etag_middleware
 
 from app.auth.router import router as auth_router
 from app.uploads.router import router as uploads_router
@@ -22,6 +24,11 @@ from app.affiliate.router import router as affiliate_router
 app = FastAPI(title="Fiyat Kalkanı API", version="0.1.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Transparent response compression (Brotli preferred, GZip fallback)
+add_compression_middleware(app)
+# ETag conditional GET support (304 Not Modified for unchanged responses)
+add_etag_middleware(app)
 
 import os
 
