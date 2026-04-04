@@ -14,6 +14,7 @@ export type ActionType = "ask_price_match" | "return_and_rebuy" | "manual_review
 export interface DashboardCard {
   order_id: number;
   product_name: string | null;
+  merchant: string | null;
   purchase_price: number | null;
   current_price: number | null;
   currency: string | null;

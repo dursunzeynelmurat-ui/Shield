@@ -228,6 +228,7 @@ class ChangePasswordRequest(BaseModel):
 class DashboardCard(BaseModel):
     order_id: int
     product_name: str | None
+    merchant: str | None = None
     purchase_price: Decimal | None
     current_price: Decimal | None
     currency: str | None

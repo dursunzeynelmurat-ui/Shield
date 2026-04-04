@@ -44,6 +44,9 @@ export const login = async (email: string, password: string) => {
 export const getDashboard = () =>
   api.get("/users/me/dashboard").then((r) => r.data);
 
+export const getDashboardSummary = () =>
+  api.get("/users/me/summary").then((r) => r.data);
+
 // Uploads
 export const uploadFile = (file: File) => {
   const form = new FormData();

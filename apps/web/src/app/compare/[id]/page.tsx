@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import { getProduct, trackClick } from "@/lib/api";
+import { getProduct, trackClick, addToWatchlist, removeFromWatchlist } from "@/lib/api";
 
 interface MerchantOffer {
   id: number;
@@ -40,6 +40,8 @@ export default function ProductDetailPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [watchlisted, setWatchlisted] = useState(false);
+  const [watchlistLoading, setWatchlistLoading] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -54,6 +56,21 @@ export default function ProductDetailPage() {
       await trackClick({ merchant_offer_id: offer.id, url: offer.url ?? undefined });
     } catch { /* non-blocking */ }
     if (offer.url) window.open(offer.url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleWatchlist = async () => {
+    if (!product) return;
+    setWatchlistLoading(true);
+    try {
+      if (watchlisted) {
+        await removeFromWatchlist(product.id);
+        setWatchlisted(false);
+      } else {
+        await addToWatchlist(product.id);
+        setWatchlisted(true);
+      }
+    } catch { /* non-blocking */ }
+    finally { setWatchlistLoading(false); }
   };
 
   const lowestPrice = product?.offers?.[0]?.effective_price;
@@ -125,6 +142,22 @@ export default function ProductDetailPage() {
                       <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmt(lowestPrice)}</span>
                     </div>
                   )}
+                  <div className="mt-4">
+                    <button
+                      onClick={handleWatchlist}
+                      disabled={watchlistLoading}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all border disabled:opacity-50 ${
+                        watchlisted
+                          ? "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300"
+                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill={watchlisted ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                      </svg>
+                      {watchlisted ? "Takip Ediliyor" : "Takip Et"}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

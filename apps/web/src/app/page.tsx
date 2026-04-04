@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { isAuthenticated } from "@/lib/auth";
-import { getDashboard, getDeals, getDiscoveryFeed, searchCatalog } from "@/lib/api";
+import { getDashboardSummary, getDeals, getDiscoveryFeed, searchCatalog } from "@/lib/api";
 import Onboarding from "@/components/Onboarding";
 import type { DashboardCard } from "@/types";
 
@@ -81,7 +81,7 @@ export default function Home() {
   useEffect(() => {
     if (!isAuthenticated()) { router.replace("/login"); return; }
     setAuthed(true);
-    getDashboard().then(setDashboard).catch(() => {});
+    getDashboardSummary().then(setDashboard).catch(() => {});
     getDeals({ page: 1, page_size: 4 }).then((d) => setDeals(d.items)).catch(() => {});
     getDiscoveryFeed(1).then((d) => setFeed(d.items)).catch(() => {});
   }, [router]);
@@ -190,12 +190,12 @@ export default function Home() {
             </div>
             <div className="space-y-3">
               {dashboard.orders.slice(0, 4).map((order) => (
-                <Link key={order.id} href={`/orders/${order.id}`}
+                <Link key={order.order_id} href={`/orders/${order.order_id}`}
                   className="flex items-center gap-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 px-5 py-4 hover:shadow-sm transition-all">
                   <div className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[order.status] ?? "bg-slate-400"}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{order.product_name}</p>
-                    <p className="text-xs text-slate-400">{order.merchant_name}</p>
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{order.product_name ?? "—"}</p>
+                    <p className="text-xs text-slate-400">{order.merchant ?? ""}</p>
                   </div>
                   <span className="text-xs px-2.5 py-1 rounded-full border bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 shrink-0">
                     {STATUS_LABELS[order.status] ?? order.status}

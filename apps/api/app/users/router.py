@@ -14,6 +14,7 @@ from app.models import Alert, AlertStatus, Order, OrderStatus, ProductMatch, Pri
 from app.schemas import (
     ChangePasswordRequest, DashboardCard, UserOut, UserUpdateRequest,
 )
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -120,3 +121,91 @@ async def get_dashboard(
         ))
 
     return cards
+
+
+class HomeSummary(BaseModel):
+    total_orders: int
+    monitoring_count: int
+    alert_count: int
+    total_savings: float
+    currency: str
+    orders: list[DashboardCard]
+
+
+@router.get("/me/summary", response_model=HomeSummary)
+async def get_summary(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregated stats + recent orders for the homepage."""
+    result = await db.execute(
+        select(Order)
+        .where(Order.user_id == current_user.id)
+        .options(
+            selectinload(Order.product_matches).selectinload(ProductMatch.price_checks),
+            selectinload(Order.alerts),
+        )
+        .order_by(Order.created_at.desc())
+    )
+    orders = result.scalars().all()
+
+    total_savings = Decimal("0")
+    monitoring_count = 0
+    alert_count = 0
+    cards: list[DashboardCard] = []
+
+    for order in orders:
+        if order.status == OrderStatus.monitoring:
+            monitoring_count += 1
+
+        current_price = None
+        active_matches = [m for m in order.product_matches if m.is_active]
+        if active_matches:
+            checks = sorted(
+                [c for m in active_matches for c in m.price_checks if c.success],
+                key=lambda c: c.checked_at,
+                reverse=True,
+            )
+            if checks:
+                current_price = checks[0].final_price
+
+        savings = None
+        if order.purchase_price and current_price:
+            diff = order.purchase_price - current_price
+            if diff > 0:
+                savings = diff
+                total_savings += diff
+
+        remaining_days = None
+        if order.return_deadline:
+            remaining_days = max(0, (order.return_deadline - date.today()).days)
+
+        new_alerts = [a for a in order.alerts if a.status == AlertStatus.new]
+        alert_count += len(new_alerts)
+        has_alert = bool(new_alerts)
+
+        cards.append(DashboardCard(
+            order_id=order.id,
+            product_name=order.product_title_raw,
+            merchant=order.merchant,
+            purchase_price=order.purchase_price,
+            current_price=current_price,
+            currency=order.currency,
+            savings=savings,
+            remaining_return_days=remaining_days,
+            status=order.status,
+            has_alert=has_alert,
+        ))
+
+    # Pick the most common currency (or TRY default)
+    currencies = [o.currency for o in orders if o.currency]
+    currency = max(set(currencies), key=currencies.count) if currencies else "TRY"
+
+    return HomeSummary(
+        total_orders=len(orders),
+        monitoring_count=monitoring_count,
+        alert_count=alert_count,
+        total_savings=float(total_savings),
+        currency=currency,
+        orders=cards,
+    )
