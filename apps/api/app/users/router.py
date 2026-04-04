@@ -1,15 +1,19 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.deps import get_current_user
+from app.auth.security import hash_password, verify_password
 from app.database import get_db
 from app.models import Alert, AlertStatus, Order, OrderStatus, ProductMatch, PriceCheck, User
-from app.schemas import DashboardCard, UserOut
+from app.schemas import (
+    ChangePasswordRequest, DashboardCard, UserOut, UserUpdateRequest,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -17,6 +21,49 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/me", response_model=UserOut)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_me(
+    body: UserUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update profile fields (email)."""
+    if body.email and body.email != current_user.email:
+        current_user.email = body.email
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(400, "Email already in use")
+        await db.refresh(current_user)
+    return current_user
+
+
+@router.post("/me/change-password", status_code=204)
+async def change_password(
+    body: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change password. Requires current password for verification."""
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(400, "Current password is incorrect")
+    if body.current_password == body.new_password:
+        raise HTTPException(400, "New password must differ from current password")
+    current_user.password_hash = hash_password(body.new_password)
+    await db.commit()
+
+
+@router.delete("/me", status_code=204)
+async def delete_me(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Deactivate account (soft delete)."""
+    current_user.is_active = False
+    await db.commit()
 
 
 @router.get("/me/dashboard", response_model=list[DashboardCard])

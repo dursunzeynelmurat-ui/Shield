@@ -92,3 +92,16 @@ export const getAlerts = () =>
 
 export const updateAlertStatus = (alertId: number, status: string) =>
   api.patch(`/alerts/${alertId}/status`, null, { params: { status } }).then((r) => r.data);
+
+// User profile
+export const getMe = () =>
+  api.get("/users/me").then((r) => r.data);
+
+export const updateMe = (data: { email?: string }) =>
+  api.patch("/users/me", data).then((r) => r.data);
+
+export const changePassword = (current_password: string, new_password: string) =>
+  api.post("/users/me/change-password", { current_password, new_password });
+
+export const deleteAccount = () =>
+  api.delete("/users/me");

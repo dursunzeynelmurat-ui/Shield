@@ -20,6 +20,7 @@ export default function Navbar() {
         <Link href="/dashboard" className="hover:text-blue-600">Dashboard</Link>
         <Link href="/upload" className="hover:text-blue-600">Yeni Sipariş</Link>
         <Link href="/alerts" className="hover:text-blue-600">Uyarılar</Link>
+        <Link href="/settings" className="hover:text-blue-600">Ayarlar</Link>
         <button onClick={handleLogout} className="text-red-500 hover:underline">
           Çıkış
         </button>
