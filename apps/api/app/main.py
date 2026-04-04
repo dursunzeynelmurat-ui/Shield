@@ -14,6 +14,10 @@ from app.alerts.router import router as alerts_router
 from app.users.router import router as users_router
 from app.merchants.router import router as merchants_router
 from app.price_checks.router import router as price_checks_router
+from app.catalog.router import router as catalog_router
+from app.deals.router import router as deals_router
+from app.discovery.router import router as discovery_router
+from app.affiliate.router import router as affiliate_router
 
 app = FastAPI(title="Fiyat Kalkanı API", version="0.1.0")
 app.state.limiter = limiter
@@ -40,6 +44,10 @@ app.include_router(orders_router)
 app.include_router(alerts_router)
 app.include_router(merchants_router)
 app.include_router(price_checks_router)
+app.include_router(catalog_router)
+app.include_router(deals_router)
+app.include_router(discovery_router)
+app.include_router(affiliate_router)
 
 
 @app.get("/health")

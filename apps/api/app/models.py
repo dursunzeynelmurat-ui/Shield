@@ -241,3 +241,157 @@ class MerchantPolicy(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     merchant: Mapped["Merchant"] = relationship(back_populates="policies")
+
+
+# ===========================================================================
+# Catalog / Compare / Deals / Discovery
+# ===========================================================================
+
+class OfferStatus(str, enum.Enum):
+    active = "active"
+    expired = "expired"
+    unverified = "unverified"
+
+
+class InterestEventType(str, enum.Enum):
+    search = "search"
+    view = "view"
+    click = "click"
+    watchlist_add = "watchlist_add"
+    watchlist_remove = "watchlist_remove"
+
+
+class Product(Base):
+    __tablename__ = "products"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    normalized_name: Mapped[str | None] = mapped_column(String(500), index=True)
+    brand: Mapped[str | None] = mapped_column(String(200), index=True)
+    model: Mapped[str | None] = mapped_column(String(200))
+    category: Mapped[str | None] = mapped_column(String(200), index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(String(2000))
+    ean: Mapped[str | None] = mapped_column(String(50), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    merchant_offers: Mapped[list["MerchantOffer"]] = relationship(back_populates="product")
+    price_history: Mapped[list["PriceHistory"]] = relationship(back_populates="product")
+    watchlist_items: Mapped[list["Watchlist"]] = relationship(back_populates="product")
+    recommendation_items: Mapped[list["RecommendationItem"]] = relationship(back_populates="product")
+
+
+class MerchantOffer(Base):
+    __tablename__ = "merchant_offers"
+    __table_args__ = (
+        UniqueConstraint("product_id", "merchant", "seller_name", name="uq_merchant_offer"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("products.id"), nullable=False, index=True)
+    merchant: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    seller_name: Mapped[str | None] = mapped_column(String(200))
+    url: Mapped[str | None] = mapped_column(String(2000))
+    listed_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    shipping_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    effective_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(10), default="TRY")
+    in_stock: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    product: Mapped["Product"] = relationship(back_populates="merchant_offers")
+    affiliate_clicks: Mapped[list["AffiliateClick"]] = relationship(back_populates="merchant_offer")
+
+
+class PriceHistory(Base):
+    __tablename__ = "price_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("products.id"), nullable=False, index=True)
+    merchant: Mapped[str] = mapped_column(String(100), nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(10), default="TRY")
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    product: Mapped["Product"] = relationship(back_populates="price_history")
+
+
+class Offer(Base):
+    """Coupon / deal offers."""
+    __tablename__ = "offers"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    merchant: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    product_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("products.id"), index=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    code: Mapped[str | None] = mapped_column(String(100))
+    discount_type: Mapped[str | None] = mapped_column(String(50))  # "percent" | "fixed" | "shipping"
+    discount_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    minimum_spend: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    conditions: Mapped[str | None] = mapped_column(Text)
+    url: Mapped[str | None] = mapped_column(String(2000))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confidence: Mapped[float] = mapped_column(Numeric(4, 3), default=1.0)
+    status: Mapped[OfferStatus] = mapped_column(Enum(OfferStatus), default=OfferStatus.active, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Watchlist(Base):
+    __tablename__ = "watchlists"
+    __table_args__ = (
+        UniqueConstraint("user_id", "product_id", name="uq_watchlist_user_product"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
+    product_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("products.id"), nullable=False, index=True)
+    target_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship()
+    product: Mapped["Product"] = relationship(back_populates="watchlist_items")
+
+
+class UserInterestEvent(Base):
+    __tablename__ = "user_interest_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
+    event_type: Mapped[InterestEventType] = mapped_column(Enum(InterestEventType), nullable=False)
+    product_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("products.id"), index=True)
+    query: Mapped[str | None] = mapped_column(String(500))
+    metadata_json: Mapped[str | None] = mapped_column(Text)  # JSON extra data
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class RecommendationItem(Base):
+    __tablename__ = "recommendation_items"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
+    product_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("products.id"), nullable=False, index=True)
+    reason: Mapped[str | None] = mapped_column(String(200))  # "similar", "better_price", "offer"
+    score: Mapped[float] = mapped_column(Numeric(6, 4), default=0.0)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    product: Mapped["Product"] = relationship(back_populates="recommendation_items")
+
+
+class AffiliateClick(Base):
+    __tablename__ = "affiliate_clicks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    merchant_offer_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("merchant_offers.id"), index=True)
+    offer_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("offers.id"), index=True)
+    url: Mapped[str | None] = mapped_column(String(2000))
+    ip_hash: Mapped[str | None] = mapped_column(String(64))
+    clicked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    merchant_offer: Mapped["MerchantOffer"] = relationship(back_populates="affiliate_clicks")

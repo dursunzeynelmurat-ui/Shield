@@ -17,6 +17,14 @@
   --red: #e11d48;
 }
 
+.dark {
+  --surface: #1e293b;
+  --bg: #0f172a;
+  --border: #334155;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+}
+
 @layer base {
   html {
     font-family: 'Inter', system-ui, sans-serif;

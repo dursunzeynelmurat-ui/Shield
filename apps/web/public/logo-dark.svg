@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" fill="none">
+  <!-- Shield icon -->
+  <path d="M20 4L8 9v7c0 7.18 5.12 13.89 12 15.5C27.88 29.89 33 23.18 33 16V9L20 4z" fill="url(#shieldGradDark)"/>
+  <path d="M17.5 19.5l-4-4 1.88-1.88L17.5 15.75l6.12-6.12L25.5 11.5l-8 8z" fill="white"/>
+  <defs>
+    <linearGradient id="shieldGradDark" x1="8" y1="4" x2="33" y2="31.5" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#60a5fa"/>
+    </linearGradient>
+  </defs>
+  <!-- Text: Fiyat Kalkanı (white for dark bg) -->
+  <text x="42" y="17" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="700" fill="#f1f5f9" letter-spacing="-0.3">Fiyat</text>
+  <text x="42" y="31" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="700" fill="#60a5fa" letter-spacing="-0.3">Kalkanı</text>
+</svg>

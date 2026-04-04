@@ -105,3 +105,36 @@ export const changePassword = (current_password: string, new_password: string) =
 
 export const deleteAccount = () =>
   api.delete("/users/me");
+
+// Catalog
+export const searchCatalog = (params: {
+  q?: string; category?: string; brand?: string; page?: number; page_size?: number;
+}) => api.get("/catalog/search", { params }).then((r) => r.data);
+
+export const getProduct = (id: number) =>
+  api.get(`/catalog/products/${id}`).then((r) => r.data);
+
+// Deals
+export const getDeals = (params: {
+  merchant?: string; discount_type?: string; page?: number; page_size?: number;
+}) => api.get("/deals/offers", { params }).then((r) => r.data);
+
+// Discovery
+export const getDiscoveryFeed = (page = 1) =>
+  api.get("/discovery/feed", { params: { page } }).then((r) => r.data);
+
+export const postInterestEvent = (body: {
+  event_type: string; product_id?: number; query?: string; metadata_json?: string;
+}) => api.post("/discovery/interest-events", body).then((r) => r.data);
+
+// Affiliate
+export const trackClick = (body: {
+  merchant_offer_id?: number; offer_id?: number; url?: string;
+}) => api.post("/affiliate/click", body).then((r) => r.data);
+
+// Watchlist
+export const addToWatchlist = (product_id: number, target_price?: number) =>
+  api.post("/watchlist", { product_id, target_price }).then((r) => r.data);
+
+export const removeFromWatchlist = (product_id: number) =>
+  api.delete(`/watchlist/${product_id}`).then((r) => r.data);
