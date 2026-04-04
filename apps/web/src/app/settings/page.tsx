@@ -7,18 +7,46 @@ import { removeToken } from "@/lib/auth";
 
 interface UserData { id: number; email: string; is_active: boolean; created_at: string }
 
+function SettingSection({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div className="card p-6">
+      <div className="mb-5">
+        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Toast({ msg, ok }: { msg: string; ok: boolean }) {
+  return (
+    <div className={`fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-card-lg text-sm font-medium animate-fade-in ${
+      ok ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"
+    }`}>
+      {ok
+        ? <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+        : <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>}
+      {msg}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const [user, setUser] = useState<UserData | null>(null);
   const [email, setEmail] = useState("");
-  const [emailMsg, setEmailMsg] = useState("");
-
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
-  const [pwMsg, setPwMsg] = useState("");
-
+  const [confirmPw, setConfirmPw] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  const showToast = (msg: string, ok: boolean) => {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   useEffect(() => {
     getMe()
@@ -29,34 +57,28 @@ export default function SettingsPage() {
   const handleEmailUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setEmailMsg("");
     try {
       const updated = await updateMe({ email });
       setUser(updated);
-      setEmailMsg("E-posta güncellendi.");
+      showToast("E-posta başarıyla güncellendi.", true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setEmailMsg(msg || "Güncelleme başarısız.");
-    } finally {
-      setSaving(false);
-    }
+      showToast(msg || "Güncelleme başarısız.", false);
+    } finally { setSaving(false); }
   };
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (newPw !== confirmPw) { showToast("Şifreler eşleşmiyor.", false); return; }
     setSaving(true);
-    setPwMsg("");
     try {
       await changePassword(currentPw, newPw);
-      setPwMsg("Şifre başarıyla değiştirildi.");
-      setCurrentPw("");
-      setNewPw("");
+      setCurrentPw(""); setNewPw(""); setConfirmPw("");
+      showToast("Şifre başarıyla değiştirildi.", true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setPwMsg(msg || "Şifre değiştirme başarısız.");
-    } finally {
-      setSaving(false);
-    }
+      showToast(msg || "Şifre değiştirme başarısız.", false);
+    } finally { setSaving(false); }
   };
 
   const handleDeleteAccount = async () => {
@@ -66,125 +88,115 @@ export default function SettingsPage() {
     router.push("/login");
   };
 
-  if (loading) {
-    return (
-      <>
-        <Navbar />
-        <div className="p-8 text-gray-500">Yükleniyor...</div>
-      </>
-    );
-  }
+  if (loading) return (
+    <>
+      <Navbar />
+      <div className="max-w-xl mx-auto px-4 py-10 space-y-4">
+        {[1, 2, 3].map(i => <div key={i} className="card p-6 space-y-3"><div className="skeleton h-4 w-32" /><div className="skeleton h-10 w-full" /></div>)}
+      </div>
+    </>
+  );
 
   return (
     <>
       <Navbar />
-      <div className="max-w-xl mx-auto p-6 space-y-8">
-        <h1 className="text-2xl font-bold text-gray-800">Hesap Ayarları</h1>
+      <div className="max-w-xl mx-auto px-4 sm:px-6 py-8 space-y-5 animate-fade-in">
+
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Hesap Ayarları</h1>
+          <p className="text-slate-500 text-sm mt-1">Profilini ve güvenlik bilgilerini yönet.</p>
+        </div>
+
+        {/* Account overview */}
+        <div className="card p-5 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-brand-gradient flex items-center justify-center text-white font-bold text-lg shrink-0">
+            {user?.email[0].toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900 truncate">{user?.email}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${user?.is_active ? "bg-emerald-500" : "bg-slate-300"}`} />
+              <p className="text-xs text-slate-400">
+                {user?.is_active ? "Aktif hesap" : "Devre dışı"} · Kayıt: {user?.created_at ? new Date(user.created_at).toLocaleDateString("tr-TR") : "—"}
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Email */}
-        <div className="bg-white rounded-2xl shadow p-5">
-          <h2 className="font-semibold text-gray-700 mb-4">E-posta Adresi</h2>
+        <SettingSection title="E-posta Adresi" subtitle="Giriş yaparken kullandığın e-posta adresi.">
           <form onSubmit={handleEmailUpdate} className="space-y-3">
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            {emailMsg && (
-              <p className={`text-sm ${emailMsg.includes("güncellendi") ? "text-green-600" : "text-red-500"}`}>
-                {emailMsg}
-              </p>
-            )}
-            <button
-              type="submit"
-              disabled={saving || email === user?.email}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-blue-700"
-            >
+            <div>
+              <label className="label">E-posta</label>
+              <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="input" />
+            </div>
+            <button type="submit" disabled={saving || email === user?.email} className="btn-primary">
               Güncelle
             </button>
           </form>
-        </div>
+        </SettingSection>
 
         {/* Password */}
-        <div className="bg-white rounded-2xl shadow p-5">
-          <h2 className="font-semibold text-gray-700 mb-4">Şifre Değiştir</h2>
+        <SettingSection title="Şifre Değiştir" subtitle="En az 8 karakter kullan.">
           <form onSubmit={handlePasswordChange} className="space-y-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Mevcut şifre</label>
-              <input
-                type="password"
-                required
-                minLength={8}
-                value={currentPw}
-                onChange={(e) => setCurrentPw(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <label className="label">Mevcut Şifre</label>
+              <input type="password" required minLength={8} value={currentPw} onChange={e => setCurrentPw(e.target.value)} className="input" placeholder="••••••••" />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Yeni şifre (min. 8 karakter)</label>
+              <label className="label">Yeni Şifre</label>
+              <input type="password" required minLength={8} value={newPw} onChange={e => setNewPw(e.target.value)} className="input" placeholder="••••••••" />
+            </div>
+            <div>
+              <label className="label">Yeni Şifre (Tekrar)</label>
               <input
                 type="password"
                 required
                 minLength={8}
-                value={newPw}
-                onChange={(e) => setNewPw(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={confirmPw}
+                onChange={e => setConfirmPw(e.target.value)}
+                className={`input ${confirmPw && confirmPw !== newPw ? "border-rose-400 focus:ring-rose-400" : ""}`}
+                placeholder="••••••••"
               />
+              {confirmPw && confirmPw !== newPw && (
+                <p className="text-xs text-rose-500 mt-1">Şifreler eşleşmiyor.</p>
+              )}
             </div>
-            {pwMsg && (
-              <p className={`text-sm ${pwMsg.includes("başarıyla") ? "text-green-600" : "text-red-500"}`}>
-                {pwMsg}
-              </p>
-            )}
-            <button
-              type="submit"
-              disabled={saving}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-blue-700"
-            >
+            <button type="submit" disabled={saving || (!!confirmPw && confirmPw !== newPw)} className="btn-primary">
               Şifreyi Değiştir
             </button>
           </form>
-        </div>
+        </SettingSection>
 
         {/* Account info */}
-        <div className="bg-white rounded-2xl shadow p-5">
-          <h2 className="font-semibold text-gray-700 mb-3">Hesap Bilgileri</h2>
-          <dl className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-gray-400">Kullanıcı ID</dt>
-              <dd className="text-gray-700 font-medium">{user?.id}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-gray-400">Kayıt tarihi</dt>
-              <dd className="text-gray-700 font-medium">
-                {user?.created_at ? new Date(user.created_at).toLocaleDateString("tr-TR") : "—"}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-gray-400">Hesap durumu</dt>
-              <dd className={`font-medium ${user?.is_active ? "text-green-600" : "text-red-500"}`}>
-                {user?.is_active ? "Aktif" : "Devre dışı"}
-              </dd>
-            </div>
-          </dl>
-        </div>
+        <SettingSection title="Hesap Bilgileri">
+          <div className="space-y-0 divide-y divide-slate-100">
+            {[
+              ["Kullanıcı ID", `#${user?.id}`],
+              ["Kayıt Tarihi", user?.created_at ? new Date(user.created_at).toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" }) : "—"],
+              ["Durum", user?.is_active ? "Aktif" : "Devre dışı"],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between items-center py-3">
+                <span className="text-sm text-slate-400">{label}</span>
+                <span className="text-sm font-medium text-slate-700">{value}</span>
+              </div>
+            ))}
+          </div>
+        </SettingSection>
 
         {/* Danger zone */}
-        <div className="bg-white rounded-2xl shadow p-5 border border-red-100">
-          <h2 className="font-semibold text-red-600 mb-3">Tehlikeli Alan</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Hesabını silersen tüm siparişlerin ve uyarıların kalıcı olarak devre dışı kalır.
+        <div className="card p-6 border border-rose-100">
+          <h2 className="text-sm font-semibold text-slate-900 mb-1">Tehlikeli Alan</h2>
+          <p className="text-xs text-slate-400 mb-5">
+            Hesabını silerseniz tüm sipariş ve uyarı verilen kalıcı olarak devre dışı kalır. Bu işlem geri alınamaz.
           </p>
-          <button
-            onClick={handleDeleteAccount}
-            className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-lg text-sm hover:bg-red-100"
-          >
+          <button onClick={handleDeleteAccount} className="btn-danger">
             Hesabı Sil
           </button>
         </div>
       </div>
+
+      {toast && <Toast msg={toast.msg} ok={toast.ok} />}
     </>
   );
 }
