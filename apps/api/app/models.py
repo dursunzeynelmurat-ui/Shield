@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, Enum, ForeignKey,
-    Integer, Numeric, String, Text, UniqueConstraint, func,
+    Integer, JSON, Numeric, String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -261,6 +261,44 @@ class InterestEventType(str, enum.Enum):
     watchlist_remove = "watchlist_remove"
 
 
+# ---------------------------------------------------------------------------
+# Category tree
+# ---------------------------------------------------------------------------
+
+class Category(Base):
+    """
+    Self-referential category tree.
+
+    Hierarchy is stored via ``parent_id`` (adjacency list) **and** a
+    ``path`` materialized column (e.g. ``"elektronik/bilgisayar/laptop"``)
+    so subtree queries need no recursion.
+
+    ``source_map`` is a JSON dict keyed by merchant name whose value is the
+    merchant's own category identifier string, e.g.:
+        {"trendyol": "3/38/1009", "hepsiburada": "Elektronik>Bilgisayar"}
+    This lets the classifier short-circuit on repeated ingestion.
+    """
+    __tablename__ = "categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    slug: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    # Materialized path, root-to-leaf, slugs joined with "/", e.g. "elektronik/laptop"
+    path: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True, index=True)
+    depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0 = root
+    parent_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("categories.id", ondelete="SET NULL"), index=True
+    )
+    # Merchant-specific category identifiers for cache lookup
+    source_map: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    parent: Mapped["Category | None"] = relationship("Category", remote_side="Category.id", back_populates="children")
+    children: Mapped[list["Category"]] = relationship("Category", back_populates="parent")
+    products: Mapped[list["Product"]] = relationship(back_populates="category_obj", foreign_keys="Product.category_id")
+
+
 class Product(Base):
     __tablename__ = "products"
 
@@ -269,13 +307,15 @@ class Product(Base):
     normalized_name: Mapped[str | None] = mapped_column(String(500), index=True)
     brand: Mapped[str | None] = mapped_column(String(200), index=True)
     model: Mapped[str | None] = mapped_column(String(200))
-    category: Mapped[str | None] = mapped_column(String(200), index=True)
+    category: Mapped[str | None] = mapped_column(String(200), index=True)  # denormalised label kept for search
+    category_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("categories.id"), index=True)
     description: Mapped[str | None] = mapped_column(Text)
     image_url: Mapped[str | None] = mapped_column(String(2000))
     ean: Mapped[str | None] = mapped_column(String(50), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    category_obj: Mapped["Category | None"] = relationship("Category", back_populates="products", foreign_keys=[category_id])
     merchant_offers: Mapped[list["MerchantOffer"]] = relationship(back_populates="product")
     price_history: Mapped[list["PriceHistory"]] = relationship(back_populates="product")
     watchlist_items: Mapped[list["Watchlist"]] = relationship(back_populates="product")

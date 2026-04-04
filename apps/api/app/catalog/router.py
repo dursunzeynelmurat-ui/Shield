@@ -1,15 +1,104 @@
-"""Catalog router — product search and detail."""
+"""Catalog router — product search, detail, and ingest."""
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
 from app.database import get_db
-from app.models import User
+from app.models import Category, User
 from app.catalog.service import get_product_detail, search_products
+from app.catalog.ingest import ingest_batch
+from app.catalog.classifier import classify, parse_merchant_path
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
+
+
+@router.get("/categories")
+async def list_categories(
+    parent_id: int | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> Any:
+    """List categories.  Pass ``parent_id`` to list children of a node."""
+    stmt = select(Category)
+    if parent_id is not None:
+        stmt = stmt.where(Category.parent_id == parent_id)
+    else:
+        stmt = stmt.where(Category.parent_id == None)  # noqa: E711  root level
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "slug": c.slug,
+            "path": c.path,
+            "depth": c.depth,
+            "parent_id": c.parent_id,
+        }
+        for c in rows
+    ]
+
+
+class ClassifyRequest(BaseModel):
+    raw_category: str
+    merchant: str = "trendyol"
+
+
+@router.post("/classify")
+async def classify_category(
+    body: ClassifyRequest,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Test endpoint: resolve a raw merchant category string to a canonical Category.
+    Shows the parsed path and the matched/created category.
+    """
+    parsed = parse_merchant_path(body.raw_category, body.merchant)
+    if not parsed:
+        raise HTTPException(status_code=422, detail="Could not parse category string")
+
+    cat = await classify(db, body.raw_category, body.merchant)
+    await db.commit()
+
+    return {
+        "parsed_segments": parsed.segments,
+        "parsed_slugs": parsed.slugs,
+        "parsed_paths": parsed.paths,
+        "category": {
+            "id": cat.id,
+            "name": cat.name,
+            "path": cat.path,
+            "depth": cat.depth,
+        } if cat else None,
+    }
+
+
+class IngestRequest(BaseModel):
+    merchant: str
+    products: list[dict]
+
+
+@router.post("/ingest")
+async def ingest_products(
+    body: IngestRequest,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> Any:
+    """
+    Bulk ingest raw product dicts from a merchant API response.
+    Auto-classifies categories and upserts products + merchant_offers.
+    """
+    if not body.products:
+        raise HTTPException(status_code=422, detail="products list is empty")
+    if len(body.products) > 500:
+        raise HTTPException(status_code=422, detail="Max 500 products per request")
+
+    summary = await ingest_batch(db, body.products, body.merchant)
+    return summary
 
 
 @router.get("/search")
