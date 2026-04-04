@@ -3,7 +3,7 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from app.models import (
     AlertStatus, AlertType, ActionType, CheckMethod,
@@ -17,12 +17,12 @@ from app.models import (
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 class UserOut(BaseModel):
@@ -70,12 +70,12 @@ class ParsedOrderData(BaseModel):
     variant: str | None = None
     sku: str | None = None
     seller_name: str | None = None
-    purchase_price: Decimal | None = None
+    purchase_price: Decimal | None = Field(default=None, ge=0)
     currency: str | None = None
     purchased_at: date | None = None
     delivery_date: date | None = None
     return_deadline: date | None = None
-    confidence: float = 0.0
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     raw_extraction: dict[str, Any] | None = None
 
 
@@ -114,7 +114,7 @@ class OrderVerifyRequest(BaseModel):
     variant: str | None = None
     sku: str | None = None
     seller_name: str | None = None
-    purchase_price: Decimal | None = None
+    purchase_price: Decimal | None = Field(default=None, ge=0)
     currency: str | None = None
     purchased_at: date | None = None
     delivery_date: date | None = None

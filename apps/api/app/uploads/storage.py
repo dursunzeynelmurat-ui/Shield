@@ -24,7 +24,13 @@ class LocalStorage:
 
     def get_local_path(self, storage_url: str) -> Path:
         key = storage_url.removeprefix("local://")
-        return self.base_path / key
+        # Reject any path traversal sequences
+        if ".." in key or "/" in key or "\\" in key or key.startswith("."):
+            raise ValueError(f"Invalid storage key: {key!r}")
+        resolved = (self.base_path / key).resolve()
+        if not str(resolved).startswith(str(self.base_path.resolve())):
+            raise ValueError("Path escapes storage directory")
+        return resolved
 
 
 def get_storage() -> LocalStorage:

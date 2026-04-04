@@ -43,27 +43,33 @@ class OpenAIParsingAdapter(BaseParsingAdapter):
 
     async def parse_image(self, image_path: Path) -> ParsedOrderData:
         from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=self.api_key)
+        client = AsyncOpenAI(api_key=self.api_key, timeout=30.0)
 
         image_bytes = image_path.read_bytes()
         b64 = base64.b64encode(image_bytes).decode()
         ext = image_path.suffix.lower().lstrip(".")
         mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
 
-        response = await client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": EXTRACTION_PROMPT},
-                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-                    ],
-                }
-            ],
-            max_tokens=1000,
-        )
-        raw_text = response.choices[0].message.content or "{}"
+        try:
+            response = await client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": EXTRACTION_PROMPT},
+                            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                        ],
+                    }
+                ],
+                max_tokens=1000,
+            )
+            raw_text = response.choices[0].message.content or "{}"
+        except Exception as exc:
+            return ParsedOrderData(
+                confidence=0.0,
+                raw_extraction={"error": str(exc), "provider": "openai"},
+            )
         return _parse_response(raw_text)
 
 
@@ -74,27 +80,33 @@ class AnthropicParsingAdapter(BaseParsingAdapter):
 
     async def parse_image(self, image_path: Path) -> ParsedOrderData:
         import anthropic
-        client = anthropic.AsyncAnthropic(api_key=self.api_key)
+        client = anthropic.AsyncAnthropic(api_key=self.api_key, timeout=30.0)
 
         image_bytes = image_path.read_bytes()
         b64 = base64.b64encode(image_bytes).decode()
         ext = image_path.suffix.lower().lstrip(".")
         mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
 
-        response = await client.messages.create(
-            model=self.model,
-            max_tokens=1000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}},
-                        {"type": "text", "text": EXTRACTION_PROMPT},
-                    ],
-                }
-            ],
-        )
-        raw_text = response.content[0].text if response.content else "{}"
+        try:
+            response = await client.messages.create(
+                model=self.model,
+                max_tokens=1000,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}},
+                            {"type": "text", "text": EXTRACTION_PROMPT},
+                        ],
+                    }
+                ],
+            )
+            raw_text = response.content[0].text if response.content else "{}"
+        except Exception as exc:
+            return ParsedOrderData(
+                confidence=0.0,
+                raw_extraction={"error": str(exc), "provider": "anthropic"},
+            )
         return _parse_response(raw_text)
 
 

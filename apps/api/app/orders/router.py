@@ -1,5 +1,3 @@
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +21,10 @@ async def create_order_from_upload(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    order = await parse_upload(upload_id, current_user.id, db)
+    try:
+        order = await parse_upload(upload_id, current_user.id, db)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
     return order
 
 
@@ -52,8 +53,14 @@ async def verify_order(
     if not order:
         raise HTTPException(404, "Order not found")
 
+    _VERIFY_FIELDS = {
+        "merchant", "merchant_order_no", "product_title_raw", "brand",
+        "model", "variant", "sku", "seller_name", "purchase_price",
+        "currency", "purchased_at", "delivery_date", "return_deadline",
+    }
     for field, value in body.model_dump(exclude_none=True).items():
-        setattr(order, field, value)
+        if field in _VERIFY_FIELDS:
+            setattr(order, field, value)
 
     order.status = OrderStatus.verified
     await db.commit()

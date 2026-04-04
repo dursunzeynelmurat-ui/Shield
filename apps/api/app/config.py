@@ -1,10 +1,13 @@
+import secrets
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://shield:shield@localhost:5432/shield"
     redis_url: str = "redis://localhost:6379/0"
-    secret_key: str = "change-me-in-production"
+    # No default — must be set via SECRET_KEY env var in production.
+    # A random fallback is generated per-process for local dev only.
+    secret_key: str = secrets.token_hex(32)
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7
 

@@ -11,7 +11,9 @@ from apps.worker.celery_app import celery_app
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # asyncio.run() creates a fresh event loop each call — safe in Celery workers.
+    # get_event_loop() is deprecated in Python 3.10+ when no loop is running.
+    return asyncio.run(coro)
 
 
 @celery_app.task(name="apps.worker.tasks.parse_upload_job", bind=True, max_retries=3)

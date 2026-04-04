@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, Enum, ForeignKey,
-    Integer, Numeric, String, Text, func,
+    Integer, Numeric, String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -87,7 +87,7 @@ class Upload(Base):
     __tablename__ = "uploads"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
     file_type: Mapped[str] = mapped_column(String(50), nullable=False)
     storage_url: Mapped[str] = mapped_column(String(1000), nullable=False)
     original_filename: Mapped[str | None] = mapped_column(String(500))
@@ -103,8 +103,8 @@ class Order(Base):
     __tablename__ = "orders"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
-    upload_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("uploads.id"))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
+    upload_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("uploads.id"), index=True)
     merchant: Mapped[str | None] = mapped_column(String(100))
     merchant_order_no: Mapped[str | None] = mapped_column(String(200))
     product_title_raw: Mapped[str | None] = mapped_column(Text)
@@ -136,7 +136,7 @@ class ProductMatch(Base):
     __tablename__ = "product_matches"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    order_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("orders.id"), nullable=False)
+    order_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("orders.id"), nullable=False, index=True)
     canonical_title: Mapped[str | None] = mapped_column(Text)
     matched_url: Mapped[str | None] = mapped_column(String(2000))
     merchant: Mapped[str | None] = mapped_column(String(100))
@@ -157,7 +157,7 @@ class PriceCheck(Base):
     __tablename__ = "price_checks"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    product_match_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("product_matches.id"), nullable=False)
+    product_match_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("product_matches.id"), nullable=False, index=True)
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     listed_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     shipping_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
@@ -179,10 +179,13 @@ class PriceCheck(Base):
 
 class Alert(Base):
     __tablename__ = "alerts"
+    __table_args__ = (
+        UniqueConstraint("price_check_id", "alert_type", name="uq_alerts_price_check_type"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    order_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("orders.id"), nullable=False)
-    price_check_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("price_checks.id"))
+    order_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("orders.id"), nullable=False, index=True)
+    price_check_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("price_checks.id"), index=True)
     alert_type: Mapped[AlertType] = mapped_column(Enum(AlertType), nullable=False)
     amount_saved: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     message: Mapped[str | None] = mapped_column(Text)
@@ -198,8 +201,8 @@ class ActionRecommendation(Base):
     __tablename__ = "action_recommendations"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    order_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("orders.id"), nullable=False)
-    alert_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("alerts.id"))
+    order_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("orders.id"), nullable=False, index=True)
+    alert_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("alerts.id"), index=True)
     action_type: Mapped[ActionType] = mapped_column(Enum(ActionType), nullable=False)
     recommended_text: Mapped[str | None] = mapped_column(Text)
     target_url: Mapped[str | None] = mapped_column(String(2000))
@@ -229,7 +232,7 @@ class MerchantPolicy(Base):
     __tablename__ = "merchant_policies"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    merchant_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("merchants.id"), nullable=False)
+    merchant_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("merchants.id"), nullable=False, index=True)
     policy_type: Mapped[str] = mapped_column(String(100), nullable=False)
     policy_value: Mapped[str | None] = mapped_column(Text)
     source_url: Mapped[str | None] = mapped_column(String(2000))

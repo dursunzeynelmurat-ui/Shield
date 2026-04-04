@@ -25,7 +25,12 @@ async def parse_upload(upload_id: int, user_id: int, db: AsyncSession) -> Order:
     local_path = storage.get_local_path(upload.storage_url)
 
     adapter = get_parsing_adapter()
-    parsed: ParsedOrderData = await adapter.parse_image(local_path)
+    try:
+        parsed: ParsedOrderData = await adapter.parse_image(local_path)
+    except Exception:
+        upload.status = UploadStatus.failed
+        await db.commit()
+        raise
 
     upload.status = UploadStatus.parsed
     await db.commit()
