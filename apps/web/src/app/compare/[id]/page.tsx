@@ -110,6 +110,33 @@ export default function ProductDetailPage() {
 
         {!loading && product && (
           <>
+            {/* JSON-LD structured data for SEO */}
+            <script
+              type="application/ld+json"
+              suppressHydrationWarning
+              dangerouslySetInnerHTML={{
+                __html: JSON.stringify({
+                  "@context": "https://schema.org",
+                  "@type": "Product",
+                  name: product.name,
+                  description: product.description ?? undefined,
+                  image: product.image_url ?? undefined,
+                  brand: product.brand ? { "@type": "Brand", name: product.brand } : undefined,
+                  offers: product.offers.map((o) => ({
+                    "@type": "Offer",
+                    url: o.url ?? undefined,
+                    priceCurrency: o.currency,
+                    price: o.effective_price ?? o.listed_price ?? undefined,
+                    seller: { "@type": "Organization", name: o.merchant },
+                    availability:
+                      o.in_stock
+                        ? "https://schema.org/InStock"
+                        : "https://schema.org/OutOfStock",
+                  })),
+                }),
+              }}
+            />
+
             {/* Product header */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm p-6 mb-6">
               <div className="flex gap-6 flex-col sm:flex-row">

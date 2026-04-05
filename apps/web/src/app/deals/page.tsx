@@ -231,6 +231,32 @@ export default function DealsPage() {
 
         {!loading && deals.length > 0 && (
           <>
+            {/* JSON-LD structured data for SEO */}
+            <script
+              type="application/ld+json"
+              suppressHydrationWarning
+              dangerouslySetInnerHTML={{
+                __html: JSON.stringify({
+                  "@context": "https://schema.org",
+                  "@type": "ItemList",
+                  numberOfItems: deals.length,
+                  itemListElement: deals.map((deal, idx) => ({
+                    "@type": "ListItem",
+                    position: idx + 1,
+                    item: {
+                      "@type": "Offer",
+                      name: deal.title,
+                      description: deal.description ?? undefined,
+                      url: deal.url ?? undefined,
+                      seller: { "@type": "Organization", name: deal.merchant },
+                      ...(deal.discount_type === "percentage" && deal.discount_value != null
+                        ? { discount: `%${deal.discount_value}` }
+                        : {}),
+                    },
+                  })),
+                }),
+              }}
+            />
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
               <span className="font-semibold text-slate-700 dark:text-slate-200">{total}</span> aktif fırsat
             </p>

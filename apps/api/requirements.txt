@@ -17,4 +17,3 @@ celery[redis]==5.4.0
 redis==5.2.1
 slowapi==0.1.9
 brotli==1.1.0
-msgpack==1.1.0
