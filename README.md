@@ -11,10 +11,10 @@ Post-purchase price protection for Turkish e-commerce. Upload an order receipt o
 - **Action recommendations** — deterministic engine recommends: ask price match (same seller), return & rebuy (different seller), or manual review
 - **Catalog** — product search with fuzzy Turkish text matching; per-product offer comparison with Offers table sorted by effective price
 - **Category classifier** — auto-classifies products into a canonical tree using Turkish-aware transliteration + 5-char prefix Jaccard similarity; caches merchant raw strings in `source_map` JSON column
-- **Deals** — cupon/offer listings scraped every 6 h via `fetch_deals()` on each connector; filterable by merchant and discount type
-- **Discovery feed** — personalised recommendation feed built every 12 h; weighted by category interest signals from user interaction events
-- **Watchlist** — track catalog products with optional target price; highlights when `lowest_price ≤ target_price`
-- **Affiliate tracking** — click events with hashed IP for attribution
+- **Deals** — coupon/offer listings scraped every 6 h via `fetch_deals()` on each connector; filterable by merchant and discount type
+- **Discovery feed** — personalised recommendation feed built every 12 h; weighted by category interest signals from user interaction events; accessible at `/for-you` (not linked in the main nav — reach via direct URL or homepage recommendations)
+- **Watchlist** — track catalog products with optional target price; highlights when `lowest_price ≤ target_price`; accessible at `/watchlist` (not linked in the main nav — reach via the "Takip Et" toggle on any product page)
+- **Affiliate click tracking** — `POST /affiliate/click` records clicks with hashed IP for attribution; write-only (no analytics UI)
 - **Compression** — Brotli preferred, GZip fallback via middleware; ETag / 304 Not Modified support for all JSON responses
 - **Cache** — in-process async TTL cache (LRU, configurable per function) for catalog reads
 
@@ -113,7 +113,10 @@ Test files cover: auth/security, upload MIME validation, file storage, AI parsin
 5. Start monitoring (14-day window)
 6. Daily price check runs automatically (or trigger manually from the order page)
 7. Alert fires when price drops → recommendation shown (price match / return & rebuy / manual review)
-8. Browse Deals and Discovery pages for additional savings opportunities
+8. Browse **Fırsatlar** (`/deals`) for coupons and discount codes
+9. Browse **Karşılaştır** (`/compare`) to search the catalog; click a product to compare offers across merchants
+10. On any product page, toggle **Takip Et** to add it to your watchlist (`/watchlist`)
+11. Visit `/for-you` directly to see your personalised recommendation feed (built every 12 h from your interaction history)
 
 ## API Reference
 
@@ -179,7 +182,7 @@ Test files cover: auth/security, upload MIME validation, file storage, AI parsin
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/merchants` | List registered merchants |
-| POST | `/affiliate/click` | Record affiliate click event |
+| POST | `/affiliate/click` | Record affiliate click event (write-only; no read/analytics endpoint exists) |
 
 ## Background Jobs (Celery Beat)
 
@@ -192,20 +195,38 @@ Test files cover: auth/security, upload MIME validation, file storage, AI parsin
 
 ## Frontend Pages
 
-| Route | Description |
-|-------|-------------|
-| `/` | Homepage: search, stats, recent orders, deals preview, recommendations |
-| `/login` `/register` | Auth |
-| `/upload` | Drag-and-drop order upload with AI parse progress |
-| `/dashboard` | All orders as cards with price comparison |
-| `/orders/[id]` | Full order detail, verify/match/monitor/price-check flow |
-| `/alerts` | All alerts with dismiss/seen actions |
-| `/compare` | Catalog search with brand/category filters |
-| `/compare/[id]` | Product detail with merchant offer table; JSON-LD structured data |
-| `/deals` | Active coupons and discount codes; JSON-LD `ItemList` |
-| `/for-you` | Personalised discovery feed |
-| `/watchlist` | Watched products with target price comparison |
-| `/settings` | Profile, password, account deletion |
+Nav links (Desktop Navbar): **Dashboard · Karşılaştır · Fırsatlar · Sipariş Ekle · Uyarılar**
+
+Pages not in the Navbar are marked *(unlisted)* — reachable via direct URL or in-page links only.
+
+| Route | Nav | Description |
+|-------|-----|-------------|
+| `/` | — | Homepage: search bar, stats, recent orders, deals preview, recommendations preview |
+| `/login` `/register` | — | Auth |
+| `/upload` | ✓ Sipariş Ekle | Drag-and-drop order upload with AI parse progress |
+| `/dashboard` | ✓ Dashboard | All orders as cards with price comparison |
+| `/orders/[id]` | *(unlisted)* | Full order detail, verify/match/monitor/price-check flow |
+| `/alerts` | ✓ Uyarılar | All alerts with dismiss/seen actions |
+| `/compare` | ✓ Karşılaştır | Catalog search with category filter |
+| `/compare/[id]` | *(unlisted)* | Product detail with merchant offer table; Schema.org `Product` JSON-LD (client-rendered) |
+| `/deals` | ✓ Fırsatlar | Active coupons and discount codes; Schema.org `ItemList` JSON-LD (client-rendered) |
+| `/for-you` | *(unlisted)* | Personalised discovery feed — no Navbar entry; link from homepage "Senin İçin" section goes to individual product pages, not this route |
+| `/watchlist` | *(unlisted)* | Watched products with target price — no Navbar entry; reachable via "Takip Et" toggle on `/compare/[id]` |
+| `/settings` | *(unlisted)* | Profile, password, account deletion |
+
+## Known Limitations
+
+- **`/for-you` and `/watchlist` are not linked in the Navbar.** Both pages are fully implemented (API + UI), but users must know the URL or find the Watchlist toggle on a product page. Adding them to `NAV_LINKS` in `apps/web/src/components/Navbar.tsx` is the only change required to surface them.
+
+- **Dynamic SEO for `/compare/[id]` always falls back to static.** `generateMetadata` in `apps/web/src/app/compare/[id]/layout.tsx` fetches `/catalog/products/{id}` without an auth token. The endpoint requires authentication, so the fetch returns 401 and the title is always "Ürün Detayı | Fiyat Kalkanı". To fix: make the catalog product endpoint public for reads, or pass a service token in the server-side fetch.
+
+- **JSON-LD structured data is client-rendered.** The Schema.org `Product` block in `/compare/[id]` and `ItemList` block in `/deals` are injected after React hydration. Most crawlers will not see them. To fix: move them into the server-side layout.
+
+- **Affiliate click tracking is write-only.** `POST /affiliate/click` persists `AffiliateClick` rows; there is no read endpoint, admin view, or per-product click count exposed anywhere.
+
+- **Onboarding only fires on `/`.** The 4-step modal in `apps/web/src/components/Onboarding.tsx` is mounted only in `apps/web/src/app/page.tsx`. Users who register and land on `/upload` or `/dashboard` directly never see it. The onboarding steps also do not mention `/for-you` or `/watchlist`.
+
+- **Deal scraping is regex-dependent.** `TrendyolConnector.fetch_deals()` and `HepsiburadaConnector.fetch_deals()` parse embedded JS state; if the merchant page structure changes, scraping silently returns empty results with no fallback or monitoring.
 
 ## AI Provider Configuration
 
