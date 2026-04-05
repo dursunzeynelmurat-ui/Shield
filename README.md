@@ -28,7 +28,7 @@ apps/
     migrations/ Alembic migrations (0001 → 0004)
     tests/      pytest test suite (8 files)
   web/          Next.js 15 frontend (TypeScript + Tailwind CSS)
-docker-compose.yml   5 services: db · redis · api · worker · beat · web
+docker-compose.yml   6 services: db · redis · api · worker · beat · web
 ```
 
 **Stack:** FastAPI · PostgreSQL 16 · SQLAlchemy 2 (async/asyncpg) · Alembic · Redis 7 · Celery 5 · Next.js 15 · Tailwind CSS · httpx · Pydantic v2
@@ -197,22 +197,24 @@ Test files cover: auth/security, upload MIME validation, file storage, AI parsin
 
 Nav links (Desktop Navbar): **Dashboard · Karşılaştır · Fırsatlar · Sipariş Ekle · Uyarılar**
 
+All routes except `/login` and `/register` require authentication and redirect unauthenticated users to `/login`.
+
 Pages not in the Navbar are marked *(unlisted)* — reachable via direct URL or in-page links only.
 
-| Route | Nav | Description |
-|-------|-----|-------------|
-| `/` | — | Homepage: search bar, stats, recent orders, deals preview, recommendations preview |
-| `/login` `/register` | — | Auth |
-| `/upload` | ✓ Sipariş Ekle | Drag-and-drop order upload with AI parse progress |
-| `/dashboard` | ✓ Dashboard | All orders as cards with price comparison |
-| `/orders/[id]` | *(unlisted)* | Full order detail, verify/match/monitor/price-check flow |
-| `/alerts` | ✓ Uyarılar | All alerts with dismiss/seen actions |
-| `/compare` | ✓ Karşılaştır | Catalog search with category filter |
-| `/compare/[id]` | *(unlisted)* | Product detail with merchant offer table; Schema.org `Product` JSON-LD (client-rendered) |
-| `/deals` | ✓ Fırsatlar | Active coupons and discount codes; Schema.org `ItemList` JSON-LD (client-rendered) |
-| `/for-you` | *(unlisted)* | Personalised discovery feed — no Navbar entry; link from homepage "Senin İçin" section goes to individual product pages, not this route |
-| `/watchlist` | *(unlisted)* | Watched products with target price — no Navbar entry; reachable via "Takip Et" toggle on `/compare/[id]` |
-| `/settings` | *(unlisted)* | Profile, password, account deletion |
+| Route | Nav | Auth | Description |
+|-------|-----|------|-------------|
+| `/` | — | required | Homepage: search bar, stats, recent orders, deals preview, recommendations preview |
+| `/login` `/register` | — | public | Auth |
+| `/upload` | ✓ Sipariş Ekle | required | Drag-and-drop order upload with AI parse progress |
+| `/dashboard` | ✓ Dashboard | required | All orders as cards with price comparison |
+| `/orders/[id]` | *(unlisted)* | required | Full order detail, verify/match/monitor/price-check flow |
+| `/alerts` | ✓ Uyarılar | required | All alerts with dismiss/seen actions |
+| `/compare` | ✓ Karşılaştır | required | Catalog search with category filter |
+| `/compare/[id]` | *(unlisted)* | required | Product detail with merchant offer table; Schema.org `Product` JSON-LD (client-rendered) |
+| `/deals` | ✓ Fırsatlar | required | Active coupons and discount codes; Schema.org `ItemList` JSON-LD (client-rendered) |
+| `/for-you` | *(unlisted)* | required | Personalised discovery feed — no Navbar entry; homepage "Senin İçin" section links to individual product pages, not this route |
+| `/watchlist` | *(unlisted)* | required | Watched products with target price — no Navbar entry; reachable via "Takip Et" toggle on `/compare/[id]` |
+| `/settings` | *(unlisted)* | required | Profile, password, account deletion; reachable via gear icon in Navbar |
 
 ## Known Limitations
 
@@ -264,6 +266,8 @@ class MyMerchantConnector(BaseConnector):
 ```
 
 Register it in `_CONNECTORS` at the bottom of the file.
+
+A `GenericConnector` also exists in the file as a fallback that attempts JSON-LD price extraction on arbitrary URLs. Its `search()` method returns an empty list (not implemented for generic domains), so it is not registered in `_CONNECTORS` and is not used by matching or background jobs.
 
 ## Database Migrations
 
