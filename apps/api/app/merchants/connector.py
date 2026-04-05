@@ -261,6 +261,61 @@ class TrendyolConnector(BaseConnector):
             logger.warning("Trendyol fetch_price error: %s", exc)
             return _failed(str(exc))
 
+    async def fetch_deals(self) -> list[dict]:
+        """Scrape Trendyol campaign/coupon page for active offers."""
+        url = "https://www.trendyol.com/kampanya/indirim-kuponlari"
+        try:
+            async with httpx.AsyncClient(
+                headers=_HEADERS_TR, timeout=_TIMEOUT, follow_redirects=True
+            ) as client:
+                resp = await client.get(url)
+            if resp.status_code != 200:
+                return []
+            html = resp.text
+            deals: list[dict] = []
+            # Try __NEXT_DATA__ / __REDUX_STATE__ embedded JSON
+            m = re.search(r'window\.__REDUX_STATE__\s*=\s*({.+?});\s*</script>', html, re.DOTALL)
+            if m:
+                try:
+                    state = json.loads(m.group(1))
+                    coupons = (
+                        state.get("coupons", {}).get("data") or
+                        state.get("campaigns", {}).get("data") or
+                        []
+                    )
+                    for c in coupons[:20]:
+                        deals.append({
+                            "title": c.get("title") or c.get("name") or "Trendyol Kuponu",
+                            "code": c.get("code"),
+                            "discount_type": "percentage" if c.get("discountType") == "PERCENT" else "fixed_amount",
+                            "discount_value": c.get("discountValue") or c.get("discount"),
+                            "minimum_spend": c.get("minimumOrderAmount"),
+                            "conditions": c.get("description"),
+                            "url": c.get("deeplink") or url,
+                            "expires_at": c.get("expiryDate"),
+                        })
+                    if deals:
+                        return deals
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            # Fallback: regex scan for coupon codes in page
+            codes = re.findall(r'"code"\s*:\s*"([A-Z0-9]{4,20})"', html)
+            for code in codes[:10]:
+                deals.append({
+                    "title": f"Trendyol {code} Kuponu",
+                    "code": code,
+                    "discount_type": None,
+                    "discount_value": None,
+                    "minimum_spend": None,
+                    "conditions": None,
+                    "url": url,
+                    "expires_at": None,
+                })
+            return deals
+        except Exception as exc:
+            logger.warning("TrendyolConnector.fetch_deals error: %s", exc)
+            return []
+
     def _parse_product_page(self, html: str, url: str) -> dict:
         # Strategy 1: __PRODUCT_DETAIL_APP_INITIAL_STATE__
         m = re.search(
@@ -482,6 +537,61 @@ class HepsiburadaConnector(BaseConnector):
 
         return _failed("Could not extract price from page")
 
+    async def fetch_deals(self) -> list[dict]:
+        """Scrape Hepsiburada campaign page for active coupon offers."""
+        url = "https://www.hepsiburada.com/indirim-kuponlari"
+        try:
+            async with httpx.AsyncClient(
+                headers=_HEADERS_TR, timeout=_TIMEOUT, follow_redirects=True
+            ) as client:
+                resp = await client.get(url)
+            if resp.status_code != 200:
+                return []
+            html = resp.text
+            deals: list[dict] = []
+            # Try __NEXT_DATA__
+            m = re.search(r'<script id="__NEXT_DATA__"[^>]*>({.+?})</script>', html, re.DOTALL)
+            if m:
+                try:
+                    data = json.loads(m.group(1))
+                    coupons = (
+                        data.get("props", {}).get("pageProps", {}).get("coupons") or
+                        data.get("props", {}).get("pageProps", {}).get("campaigns") or
+                        []
+                    )
+                    for c in coupons[:20]:
+                        deals.append({
+                            "title": c.get("title") or c.get("name") or "Hepsiburada Kuponu",
+                            "code": c.get("couponCode") or c.get("code"),
+                            "discount_type": "percentage" if "%" in str(c.get("title", "")) else "fixed_amount",
+                            "discount_value": c.get("discountValue") or c.get("discountRate"),
+                            "minimum_spend": c.get("minimumCartPrice") or c.get("minOrderAmount"),
+                            "conditions": c.get("description"),
+                            "url": c.get("url") or url,
+                            "expires_at": c.get("endDate") or c.get("expiryDate"),
+                        })
+                    if deals:
+                        return deals
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            # Fallback: regex scan
+            codes = re.findall(r'"couponCode"\s*:\s*"([A-Z0-9]{4,20})"', html)
+            for code in codes[:10]:
+                deals.append({
+                    "title": f"Hepsiburada {code} Kuponu",
+                    "code": code,
+                    "discount_type": None,
+                    "discount_value": None,
+                    "minimum_spend": None,
+                    "conditions": None,
+                    "url": url,
+                    "expires_at": None,
+                })
+            return deals
+        except Exception as exc:
+            logger.warning("HepsiburadaConnector.fetch_deals error: %s", exc)
+            return []
+
 
 # ---------------------------------------------------------------------------
 # Generic connector (n11, amazon.com.tr, etc.)
@@ -542,6 +652,9 @@ _CONNECTORS: dict[str, BaseConnector] = {
     "trendyol": TrendyolConnector(),
     "hepsiburada": HepsiburadaConnector(),
 }
+
+# Public alias used by background tasks
+CONNECTOR_REGISTRY: dict[str, BaseConnector] = _CONNECTORS
 
 
 def get_connector(merchant: str | None) -> BaseConnector:

@@ -136,6 +136,9 @@ export const trackClick = (body: {
 }) => api.post("/affiliate/click", body).then((r) => r.data);
 
 // Watchlist
+export const getWatchlist = () =>
+  api.get("/watchlist").then((r) => r.data);
+
 export const addToWatchlist = (product_id: number, target_price?: number) =>
   api.post("/watchlist", { product_id, target_price }).then((r) => r.data);
 

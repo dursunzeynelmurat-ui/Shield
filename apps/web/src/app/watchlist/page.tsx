@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { isAuthenticated } from "@/lib/auth";
-import { api } from "@/lib/api";
+import { getWatchlist, removeFromWatchlist } from "@/lib/api";
 
 interface WatchlistEntry {
   id: number;
@@ -37,7 +37,7 @@ function WatchlistCard({
   const handleRemove = async () => {
     setRemoving(true);
     try {
-      await api.delete(`/watchlist/${entry.product_id}`);
+      await removeFromWatchlist(entry.product_id);
       onRemove(entry.product_id);
     } catch {
       setRemoving(false);
@@ -125,8 +125,8 @@ export default function WatchlistPage() {
 
   useEffect(() => {
     if (!isAuthenticated()) { router.replace("/login"); return; }
-    api.get("/watchlist")
-      .then((r) => setEntries(r.data))
+    getWatchlist()
+      .then(setEntries)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [router]);

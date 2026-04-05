@@ -50,7 +50,7 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    command: celery -A apps.worker.celery_app worker --loglevel=info
+    command: celery -A worker.celery_app worker --loglevel=info
     environment:
       DATABASE_URL: postgresql+asyncpg://shield:shield@db:5432/shield
       REDIS_URL: redis://redis:6379/0
@@ -68,7 +68,7 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    command: celery -A apps.worker.celery_app beat --loglevel=info
+    command: celery -A worker.celery_app beat --loglevel=info
     environment:
       DATABASE_URL: postgresql+asyncpg://shield:shield@db:5432/shield
       REDIS_URL: redis://redis:6379/0
