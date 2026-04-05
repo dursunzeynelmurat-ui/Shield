@@ -66,9 +66,16 @@ def daily_price_check_job():
             orders = result.scalars().all()
             for order in orders:
                 for match in order.product_matches:
-                    if match.is_active:
+                    if not match.is_active:
+                        continue
+                    try:
                         await run_price_check(match, db)
                         await evaluate_alerts_for_order(order.id, db)
+                    except Exception as exc:
+                        logger.warning(
+                            "daily_price_check_job: failed for order %s match %s: %s",
+                            order.id, match.id, exc,
+                        )
 
     return _run(_inner())
 

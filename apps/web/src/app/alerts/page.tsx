@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { getAlerts, updateAlertStatus } from "@/lib/api";
+import { isAuthenticated } from "@/lib/auth";
 import type { Alert } from "@/types";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -93,13 +95,15 @@ function AlertItem({ alert, onDismiss, onSeen }: {
 }
 
 export default function AlertsPage() {
+  const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("Tümü");
 
   useEffect(() => {
+    if (!isAuthenticated()) { router.replace("/login"); return; }
     getAlerts().then(setAlerts).finally(() => setLoading(false));
-  }, []);
+  }, [router]);
 
   const handleDismiss = async (id: number) => {
     const updated = await updateAlertStatus(id, "dismissed");

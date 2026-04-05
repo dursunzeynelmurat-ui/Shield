@@ -22,6 +22,7 @@ interface FeedItem {
 const REASON_LABELS: Record<string, string> = {
   purchased_product: "Satın aldığın ürüne benzer",
   catalog_match:     "Senin için seçildi",
+  interest_match:    "İlgi alanına göre",
   price_drop:        "Fiyat düşüşü var",
   trending:          "Popüler",
 };

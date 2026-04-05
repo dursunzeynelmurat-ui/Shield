@@ -1,8 +1,10 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { searchCatalog } from "@/lib/api";
+import { isAuthenticated } from "@/lib/auth";
 
 interface Product {
   id: number;
@@ -20,14 +22,26 @@ interface SearchResult {
   items: Product[];
 }
 
-export const metadata = undefined; // client component
-
 export default function ComparePage() {
-  const [query, setQuery] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [query, setQuery] = useState(searchParams?.get("q") ?? "");
   const [category, setCategory] = useState("");
   const [results, setResults] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    if (!isAuthenticated()) { router.replace("/login"); return; }
+    // Auto-search if ?q= param present
+    const q = searchParams?.get("q");
+    if (q) {
+      setQuery(q);
+      searchCatalog({ q, page: 1 })
+        .then((data) => { setResults(data); setPage(1); })
+        .catch(() => {});
+    }
+  }, [router, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const search = useCallback(async (p = 1) => {
     if (!query.trim() && !category.trim()) return;
