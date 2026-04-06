@@ -34,11 +34,15 @@ export const searchCatalog = (params: {
 export const getProduct = (id: number) =>
   api.get(`/catalog/products/${id}`).then((r) => r.data);
 
-export const getDeals = (params?: { page?: number; page_size?: number }) =>
+export const getDeals = (params?: Record<string, unknown>) =>
   api.get("/catalog/deals", { params }).then((r) => r.data);
 
-export const trackClick = (offerId: number) =>
-  api.post(`/catalog/offers/${offerId}/click`).then((r) => r.data);
+export const trackClick = (offerIdOrPayload: number | { merchant_offer_id?: number; offer_id?: number; url?: string }) => {
+  const id = typeof offerIdOrPayload === "number"
+    ? offerIdOrPayload
+    : (offerIdOrPayload.merchant_offer_id ?? offerIdOrPayload.offer_id ?? 0);
+  return api.post(`/catalog/offers/${id}/click`).then((r) => r.data);
+};
 
 // Watchlist / monitoring
 export const getWatchlist = () =>
@@ -69,8 +73,8 @@ export const getMatches = (orderId: number) =>
 export const getRecommendation = (orderId: number) =>
   api.get(`/orders/${orderId}/recommendation`).then((r) => r.data);
 
-export const verifyOrder = (orderId: number) =>
-  api.post(`/orders/${orderId}/verify`).then((r) => r.data);
+export const verifyOrder = (orderId: number, data?: Record<string, unknown>) =>
+  api.post(`/orders/${orderId}/verify`, data).then((r) => r.data);
 
 export const matchOrder = (orderId: number) =>
   api.post(`/orders/${orderId}/match`).then((r) => r.data);
@@ -102,11 +106,17 @@ export const getDashboardSummary = () =>
   api.get("/dashboard/summary").then((r) => r.data);
 
 // Discovery / For You
-export const getDiscoveryFeed = (params?: { page?: number; page_size?: number }) =>
-  api.get("/discovery/feed", { params }).then((r) => r.data);
+export const getDiscoveryFeed = (paramsOrPage?: Record<string, unknown> | number) => {
+  const params = typeof paramsOrPage === "number" ? { page: paramsOrPage } : paramsOrPage;
+  return api.get("/discovery/feed", { params }).then((r) => r.data);
+};
 
-export const postInterestEvent = (productId: number, event: string) =>
-  api.post("/discovery/interest", { product_id: productId, event }).then((r) => r.data);
+export const postInterestEvent = (productIdOrPayload: number | Record<string, unknown>, event?: string) => {
+  const payload = typeof productIdOrPayload === "number"
+    ? { product_id: productIdOrPayload, event }
+    : productIdOrPayload;
+  return api.post("/discovery/interest", payload).then((r) => r.data);
+};
 
 // User / settings
 export const getMe = () =>
