@@ -21,6 +21,10 @@ export const loginWithEmail = (email: string, password: string) =>
 
 export const signOut = () => firebaseSignOut(auth);
 
+export const removeToken = () => firebaseSignOut(auth);
+
+export const setToken = (_token: string) => { /* no-op: Firebase manages tokens */ };
+
 export const getFirebaseToken = async (): Promise<string | null> => {
   const user = auth.currentUser;
   if (!user) return null;

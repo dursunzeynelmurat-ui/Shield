@@ -26,12 +26,9 @@ api.interceptors.response.use(
   }
 );
 
+// Catalog
 export const searchCatalog = (params: {
-  q?: string;
-  category?: string;
-  brand?: string;
-  page?: number;
-  page_size?: number;
+  q?: string; category?: string; brand?: string; page?: number; page_size?: number;
 }) => api.get("/catalog/search", { params }).then((r) => r.data);
 
 export const getProduct = (id: number) =>
@@ -40,6 +37,10 @@ export const getProduct = (id: number) =>
 export const getDeals = (params?: { page?: number; page_size?: number }) =>
   api.get("/catalog/deals", { params }).then((r) => r.data);
 
+export const trackClick = (offerId: number) =>
+  api.post(`/catalog/offers/${offerId}/click`).then((r) => r.data);
+
+// Watchlist / monitoring
 export const getWatchlist = () =>
   api.get("/monitoring/watchlist").then((r) => r.data);
 
@@ -49,16 +50,78 @@ export const addToWatchlist = (productId: number) =>
 export const removeFromWatchlist = (itemId: number) =>
   api.delete(`/monitoring/watchlist/${itemId}`).then((r) => r.data);
 
-export const uploadReceipt = (file: File) => {
+export const startMonitoring = (orderId: number) =>
+  api.post(`/monitoring/orders/${orderId}/start`).then((r) => r.data);
+
+export const stopMonitoring = (orderId: number) =>
+  api.post(`/monitoring/orders/${orderId}/stop`).then((r) => r.data);
+
+export const runPriceCheck = (orderId: number) =>
+  api.post(`/monitoring/orders/${orderId}/check`).then((r) => r.data);
+
+// Orders
+export const getOrder = (id: number) =>
+  api.get(`/orders/${id}`).then((r) => r.data);
+
+export const getMatches = (orderId: number) =>
+  api.get(`/orders/${orderId}/matches`).then((r) => r.data);
+
+export const getRecommendation = (orderId: number) =>
+  api.get(`/orders/${orderId}/recommendation`).then((r) => r.data);
+
+export const verifyOrder = (orderId: number) =>
+  api.post(`/orders/${orderId}/verify`).then((r) => r.data);
+
+export const matchOrder = (orderId: number) =>
+  api.post(`/orders/${orderId}/match`).then((r) => r.data);
+
+// Uploads
+export const uploadFile = (file: File) => {
   const form = new FormData();
   form.append("file", file);
   return api.post("/uploads/receipt", form).then((r) => r.data);
 };
 
+export const uploadReceipt = uploadFile;
+
+export const createOrderFromUpload = (uploadId: number) =>
+  api.post(`/uploads/${uploadId}/create-order`).then((r) => r.data);
+
+// Alerts
 export const getAlerts = () =>
   api.get("/alerts").then((r) => r.data);
 
-// Legacy exports kept for compatibility
+export const updateAlertStatus = (alertId: number, status: string) =>
+  api.patch(`/alerts/${alertId}`, { status }).then((r) => r.data);
+
+// Dashboard
+export const getDashboard = () =>
+  api.get("/dashboard").then((r) => r.data);
+
+export const getDashboardSummary = () =>
+  api.get("/dashboard/summary").then((r) => r.data);
+
+// Discovery / For You
+export const getDiscoveryFeed = (params?: { page?: number; page_size?: number }) =>
+  api.get("/discovery/feed", { params }).then((r) => r.data);
+
+export const postInterestEvent = (productId: number, event: string) =>
+  api.post("/discovery/interest", { product_id: productId, event }).then((r) => r.data);
+
+// User / settings
+export const getMe = () =>
+  api.get("/auth/me").then((r) => r.data);
+
+export const updateMe = (data: Record<string, unknown>) =>
+  api.patch("/auth/me", data).then((r) => r.data);
+
+export const changePassword = (oldPassword: string, newPassword: string) =>
+  api.post("/auth/change-password", { old_password: oldPassword, new_password: newPassword }).then((r) => r.data);
+
+export const deleteAccount = () =>
+  api.delete("/auth/me").then((r) => r.data);
+
+// Legacy compat
 export const login = async (email: string, password: string) => {
   const { loginWithEmail } = await import("./auth");
   const cred = await loginWithEmail(email, password);
