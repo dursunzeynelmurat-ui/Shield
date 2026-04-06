@@ -13,6 +13,7 @@ Designed to be called from:
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select
@@ -44,9 +45,12 @@ def _extract_field(product: dict, *keys: str, default=None):
     return default
 
 
+_TR_TABLE = str.maketrans("ğüşıöçĞÜŞİÖÇ", "gusiocGUSIOC")
+
+
 def _normalise_name(name: str) -> str:
-    """Lowercase + collapse whitespace for dedup matching."""
-    return " ".join(name.lower().split())
+    """Lowercase + Turkish transliteration + collapse whitespace for dedup matching."""
+    return " ".join(name.translate(_TR_TABLE).lower().split())
 
 
 async def upsert_product(
@@ -151,6 +155,8 @@ async def upsert_product(
     )
     offer = result.scalar_one_or_none()
 
+    now = datetime.now(timezone.utc)
+
     if offer is None:
         offer = MerchantOffer(
             product_id=product.id,
@@ -162,6 +168,7 @@ async def upsert_product(
             effective_price=effective_price,
             currency=currency,
             in_stock=in_stock,
+            last_checked_at=now,
         )
         db.add(offer)
         # Record initial price in history
@@ -182,6 +189,7 @@ async def upsert_product(
         offer.effective_price = effective_price
         offer.in_stock = in_stock
         offer.currency = currency
+        offer.last_checked_at = now
         if offer_url:
             offer.url = str(offer_url)
         # Record price change in history

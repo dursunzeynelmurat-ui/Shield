@@ -139,6 +139,43 @@ async def catalog_product(
         key=lambda o: (o.effective_price or o.listed_price or 0),
     )
 
+    offers_data = [
+        {
+            "id": o.id,
+            "merchant": o.merchant.capitalize(),
+            "seller_name": o.seller_name,
+            "url": o.url,
+            "listed_price": o.listed_price,
+            "shipping_price": o.shipping_price,
+            "effective_price": o.effective_price,
+            "currency": o.currency,
+            "in_stock": o.in_stock,
+            "last_checked_at": o.last_checked_at,
+        }
+        for o in offers_sorted
+    ]
+
+    compare = None
+    if len(offers_sorted) >= 2:
+        best = offers_sorted[0]
+        next_ = offers_sorted[1]
+        best_price = best.effective_price or best.listed_price or 0
+        next_price = next_.effective_price or next_.listed_price or 0
+        if best_price > 0 and next_price > best_price:
+            diff = next_price - best_price
+            pct = (diff / next_price * 100)
+            compare = {
+                "best_price": best_price,
+                "best_merchant": best.merchant.capitalize(),
+                "best_url": best.url,
+                "next_price": next_price,
+                "next_merchant": next_.merchant.capitalize(),
+                "next_url": next_.url,
+                "you_save": diff,
+                "you_save_pct": round(float(pct), 1),
+                "currency": best.currency,
+            }
+
     return {
         "id": product.id,
         "name": product.name,
@@ -149,19 +186,6 @@ async def catalog_product(
         "image_url": product.image_url,
         "ean": product.ean,
         "created_at": product.created_at,
-        "offers": [
-            {
-                "id": o.id,
-                "merchant": o.merchant,
-                "seller_name": o.seller_name,
-                "url": o.url,
-                "listed_price": o.listed_price,
-                "shipping_price": o.shipping_price,
-                "effective_price": o.effective_price,
-                "currency": o.currency,
-                "in_stock": o.in_stock,
-                "last_checked_at": o.last_checked_at,
-            }
-            for o in offers_sorted
-        ],
+        "offers": offers_data,
+        "compare": compare,
     }
