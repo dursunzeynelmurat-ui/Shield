@@ -210,15 +210,17 @@ async def ingest_batch(
     created_count = updated_count = error_count = 0
 
     for raw in items:
-        try:
-            _, created = await upsert_product(db, raw, merchant)
-            if created:
-                created_count += 1
-            else:
-                updated_count += 1
-        except Exception as exc:
-            logger.warning("Failed to ingest product from %s: %s | raw=%r", merchant, exc, raw)
-            error_count += 1
+        # Use a savepoint so a single-row failure doesn't abort the whole batch.
+        async with db.begin_nested():
+            try:
+                _, created = await upsert_product(db, raw, merchant)
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+            except Exception as exc:
+                logger.warning("Failed to ingest product from %s: %s | raw=%r", merchant, exc, raw)
+                error_count += 1
 
     await db.commit()
     return {"created": created_count, "updated": updated_count, "errors": error_count}
