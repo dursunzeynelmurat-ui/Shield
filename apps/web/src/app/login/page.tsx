@@ -2,8 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { login } from "@/lib/api";
-import { setToken } from "@/lib/auth";
+import { loginWithEmail } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,11 +17,15 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await login(email, password);
-      setToken(data.access_token);
+      await loginWithEmail(email, password);
       router.push("/dashboard");
-    } catch {
-      setError("E-posta veya şifre hatalı.");
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === "auth/user-not-found" || code === "auth/wrong-password" || code === "auth/invalid-credential") {
+        setError("E-posta veya şifre hatalı.");
+      } else {
+        setError("Giriş yapılamadı. Lütfen tekrar deneyin.");
+      }
     } finally {
       setLoading(false);
     }
@@ -48,7 +51,6 @@ export default function LoginPage() {
           <p className="text-blue-200 text-lg leading-relaxed max-w-sm">
             Satın aldığın ürünlerin fiyatı düştüğünde seni haberdar ediyoruz — otomatik olarak.
           </p>
-
           <div className="space-y-3 pt-4">
             {[
               { icon: "📸", text: "Sipariş ekran görüntüsünü yükle" },
@@ -69,7 +71,6 @@ export default function LoginPage() {
       {/* Right form panel */}
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-sm animate-fade-in">
-          {/* Mobile brand */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div className="w-8 h-8 rounded-lg bg-brand-gradient flex items-center justify-center">
               <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">

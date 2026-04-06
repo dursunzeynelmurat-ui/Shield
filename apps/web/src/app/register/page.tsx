@@ -2,8 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { register, login } from "@/lib/api";
-import { setToken } from "@/lib/auth";
+import { registerWithEmail } from "@/lib/auth";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -22,13 +21,17 @@ export default function RegisterPage() {
     setLoading(true);
     setError("");
     try {
-      await register(email, password);
-      const data = await login(email, password);
-      setToken(data.access_token);
+      await registerWithEmail(email, password);
       router.push("/dashboard");
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(msg || "Kayıt başarısız. Lütfen tekrar deneyin.");
+      const code = (err as { code?: string })?.code;
+      if (code === "auth/email-already-in-use") {
+        setError("Bu e-posta zaten kayıtlı. Giriş yapmayı deneyin.");
+      } else if (code === "auth/weak-password") {
+        setError("Şifre en az 6 karakter olmalıdır.");
+      } else {
+        setError("Kayıt başarısız. Lütfen tekrar deneyin.");
+      }
     } finally {
       setLoading(false);
     }
@@ -37,9 +40,7 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 p-6">
       <div className="w-full max-w-md animate-fade-in">
-        {/* Card */}
         <div className="card shadow-card-lg p-8">
-          {/* Brand */}
           <div className="flex items-center gap-2.5 mb-8">
             <div className="w-9 h-9 rounded-xl bg-brand-gradient flex items-center justify-center shadow-sm">
               <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
@@ -72,11 +73,11 @@ export default function RegisterPage() {
                 <input
                   type={showPw ? "text" : "password"}
                   required
-                  minLength={8}
+                  minLength={6}
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="En az 8 karakter"
+                  placeholder="En az 6 karakter"
                   className="input pr-10"
                 />
                 <button
@@ -90,7 +91,6 @@ export default function RegisterPage() {
                 </button>
               </div>
 
-              {/* Password strength */}
               {password.length > 0 && (
                 <div className="mt-2 space-y-1">
                   <div className="flex gap-1">

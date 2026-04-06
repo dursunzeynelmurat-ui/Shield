@@ -1,16 +1,27 @@
-import Cookies from "js-cookie";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+  User,
+} from "firebase/auth";
+import { auth } from "./firebase";
 
-export const setToken = (token: string) => {
-  Cookies.set("token", token, {
-    expires: 7,
-    sameSite: "strict",
-    // secure: true must be enabled in production (HTTPS)
-    secure: process.env.NODE_ENV === "production",
-  });
+export const registerWithEmail = (email: string, password: string) =>
+  createUserWithEmailAndPassword(auth, email, password);
+
+export const loginWithEmail = (email: string, password: string) =>
+  signInWithEmailAndPassword(auth, email, password);
+
+export const signOut = () => firebaseSignOut(auth);
+
+export const getFirebaseToken = async (): Promise<string | null> => {
+  const user = auth.currentUser;
+  if (!user) return null;
+  return user.getIdToken();
 };
 
-export const getToken = () => Cookies.get("token");
+export const isAuthenticated = () => !!auth.currentUser;
 
-export const removeToken = () => Cookies.remove("token");
-
-export const isAuthenticated = () => !!getToken();
+export const onAuthChange = (cb: (user: User | null) => void) =>
+  onAuthStateChanged(auth, cb);
