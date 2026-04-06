@@ -650,6 +650,264 @@ class HepsiburadaConnector(BaseConnector):
 
 
 # ---------------------------------------------------------------------------
+# Akakçe connector (price comparison aggregator)
+# ---------------------------------------------------------------------------
+
+_AKAKCE_SEARCH = "https://www.akakce.com/search/?q={q}"
+_AKAKCE_API = "https://www.akakce.com/api/search?q={q}&l=1&v=2"
+
+_HEADERS_AKAKCE = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "tr-TR,tr;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.akakce.com/",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+}
+
+
+class AkakceConnector(BaseConnector):
+    merchant_name = "akakce"
+    domain = "akakce.com"
+
+    async def search(self, title: str, brand: str | None, model: str | None) -> list[dict]:
+        query = " ".join(filter(None, [brand, model, title]))[:120]
+        encoded = quote_plus(query)
+
+        resp = await _fetch_html(_AKAKCE_SEARCH.format(q=encoded), _HEADERS_AKAKCE)
+        if resp is None:
+            return []
+
+        results = self._parse_search(resp.text, query)
+        if results:
+            logger.info("Akakce search: %d results for %r", len(results), query)
+        else:
+            logger.warning("Akakce search: 0 results for %r (page len=%d)", query, len(resp.text))
+        return results
+
+    def _parse_search(self, html: str, query: str) -> list[dict]:
+        results: list[dict] = []
+
+        # Strategy 1: JSON-LD ItemList
+        m = re.search(
+            r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+            html, re.DOTALL | re.IGNORECASE,
+        )
+        if m:
+            try:
+                data = json.loads(m.group(1))
+                items = []
+                if isinstance(data, dict) and data.get("@type") == "ItemList":
+                    items = data.get("itemListElement", [])
+                elif isinstance(data, list):
+                    for d in data:
+                        if d.get("@type") == "ItemList":
+                            items = d.get("itemListElement", [])
+                            break
+                for item in items[:10]:
+                    thing = item.get("item") or item
+                    name = thing.get("name") or ""
+                    url = thing.get("url") or thing.get("@id") or ""
+                    price = _to_decimal(
+                        (thing.get("offers") or {}).get("price")
+                        or (thing.get("offers") or {}).get("lowPrice")
+                    )
+                    if name:
+                        results.append({
+                            "url": url,
+                            "product_url": url,
+                            "title": name,
+                            "normalized_title": _normalize_title(name),
+                            "seller": "Akakce",
+                            "price": price,
+                            "currency": "TRY",
+                            "image_url": thing.get("image"),
+                            "merchant": "akakce",
+                        })
+                if results:
+                    return results
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass
+
+        # Strategy 2: product cards in HTML
+        # Akakce uses <li> items with class "w" containing product data
+        for m2 in re.finditer(
+            r'<li[^>]+class="[^"]*w[^"]*"[^>]*>.*?'
+            r'href="([^"]+)"[^>]*>\s*<[^>]+>([^<]{5,120})<',
+            html, re.DOTALL,
+        ):
+            url, name = m2.group(1).strip(), m2.group(2).strip()
+            if not url.startswith("http"):
+                url = f"https://www.akakce.com{url}"
+            if len(results) >= 10:
+                break
+            results.append({
+                "url": url,
+                "product_url": url,
+                "title": name,
+                "normalized_title": _normalize_title(name),
+                "seller": "Akakce",
+                "price": None,
+                "currency": "TRY",
+                "image_url": None,
+                "merchant": "akakce",
+            })
+
+        # Strategy 3: extract prices from inline JSON
+        if results:
+            prices = re.findall(r'"price"\s*:\s*([\d.]+)', html)
+            for i, p in enumerate(prices[:len(results)]):
+                if results[i]["price"] is None:
+                    results[i]["price"] = _to_decimal(p)
+
+        return results
+
+    async def fetch_price(self, url: str) -> dict:
+        if not url or "akakce.com" not in url:
+            return _failed("URL is not an Akakce product URL")
+        resp = await _fetch_html(url, _HEADERS_AKAKCE)
+        if resp is None:
+            return _failed("Request failed after retries")
+        ld = _extract_jsonld(resp.text)
+        if ld and ld.get("@type") == "Product":
+            offers = ld.get("offers") or {}
+            if isinstance(offers, list):
+                offers = offers[0] if offers else {}
+            price = _to_decimal(offers.get("price") or offers.get("lowPrice"))
+            return {
+                "listed_price": price, "shipping_price": None, "final_price": price,
+                "currency": "TRY", "seller": "Akakce", "stock_status": "unknown",
+                "success": price is not None, "error_message": None,
+            }
+        return _failed("Could not extract price")
+
+
+# ---------------------------------------------------------------------------
+# Cimri connector (price comparison aggregator)
+# ---------------------------------------------------------------------------
+
+_CIMRI_SEARCH = "https://www.cimri.com/arama?q={q}"
+
+_HEADERS_CIMRI = {
+    **_HEADERS_AKAKCE,
+    "Referer": "https://www.cimri.com/",
+}
+
+
+class CimriConnector(BaseConnector):
+    merchant_name = "cimri"
+    domain = "cimri.com"
+
+    async def search(self, title: str, brand: str | None, model: str | None) -> list[dict]:
+        query = " ".join(filter(None, [brand, model, title]))[:120]
+        encoded = quote_plus(query)
+
+        resp = await _fetch_html(_CIMRI_SEARCH.format(q=encoded), _HEADERS_CIMRI)
+        if resp is None:
+            return []
+
+        results = self._parse_search(resp.text)
+        if results:
+            logger.info("Cimri search: %d results for %r", len(results), query)
+        else:
+            logger.warning("Cimri search: 0 results for %r (page len=%d)", query, len(resp.text))
+        return results
+
+    def _parse_search(self, html: str) -> list[dict]:
+        results: list[dict] = []
+
+        # Strategy 1: __NEXT_DATA__ JSON
+        m = re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>', html, re.DOTALL)
+        if m:
+            try:
+                next_data = json.loads(m.group(1))
+                products = (
+                    next_data.get("props", {}).get("pageProps", {}).get("products")
+                    or next_data.get("props", {}).get("pageProps", {}).get("searchResult", {}).get("products")
+                    or []
+                )
+                for p in products[:10]:
+                    name = p.get("name") or p.get("title") or ""
+                    if not name:
+                        continue
+                    url = p.get("url") or p.get("productUrl") or ""
+                    if url and not url.startswith("http"):
+                        url = f"https://www.cimri.com{url}"
+                    price = _to_decimal(
+                        p.get("lowestPrice") or p.get("price") or p.get("minPrice")
+                    )
+                    results.append({
+                        "url": url,
+                        "product_url": url,
+                        "title": name,
+                        "normalized_title": _normalize_title(name),
+                        "seller": "Cimri",
+                        "price": price,
+                        "currency": "TRY",
+                        "image_url": p.get("imageUrl") or p.get("image"),
+                        "merchant": "cimri",
+                    })
+                if results:
+                    return results
+            except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                logger.debug("Cimri __NEXT_DATA__ parse failed: %s", exc)
+
+        # Strategy 2: JSON-LD
+        for m2 in re.finditer(
+            r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+            html, re.DOTALL | re.IGNORECASE,
+        ):
+            try:
+                data = json.loads(m2.group(1))
+                items = []
+                if isinstance(data, dict) and data.get("@type") == "ItemList":
+                    items = data.get("itemListElement", [])
+                for item in items[:10]:
+                    thing = item.get("item") or item
+                    name = thing.get("name") or ""
+                    url = thing.get("url") or ""
+                    price = _to_decimal((thing.get("offers") or {}).get("lowPrice"))
+                    if name:
+                        results.append({
+                            "url": url, "product_url": url, "title": name,
+                            "normalized_title": _normalize_title(name),
+                            "seller": "Cimri", "price": price, "currency": "TRY",
+                            "image_url": None, "merchant": "cimri",
+                        })
+                if results:
+                    return results
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue
+
+        return results
+
+    async def fetch_price(self, url: str) -> dict:
+        if not url or "cimri.com" not in url:
+            return _failed("URL is not a Cimri product URL")
+        resp = await _fetch_html(url, _HEADERS_CIMRI)
+        if resp is None:
+            return _failed("Request failed after retries")
+        ld = _extract_jsonld(resp.text)
+        if ld and ld.get("@type") == "Product":
+            offers = ld.get("offers") or {}
+            if isinstance(offers, list):
+                offers = offers[0] if offers else {}
+            price = _to_decimal(offers.get("price") or offers.get("lowPrice"))
+            return {
+                "listed_price": price, "shipping_price": None, "final_price": price,
+                "currency": "TRY", "seller": "Cimri", "stock_status": "unknown",
+                "success": price is not None, "error_message": None,
+            }
+        return _failed("Could not extract price")
+
+
+# ---------------------------------------------------------------------------
 # Generic connector (n11, amazon.com.tr, etc.)
 # ---------------------------------------------------------------------------
 
@@ -729,6 +987,8 @@ def _failed(msg: str) -> dict:
 _CONNECTORS: dict[str, BaseConnector] = {
     "trendyol": TrendyolConnector(),
     "hepsiburada": HepsiburadaConnector(),
+    "akakce": AkakceConnector(),
+    "cimri": CimriConnector(),
 }
 
 # Public alias used by background tasks
