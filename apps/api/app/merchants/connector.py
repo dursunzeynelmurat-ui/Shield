@@ -25,6 +25,7 @@ No external parsing library (BeautifulSoup, lxml) is required — we use
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -37,28 +38,81 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Turkish character normalization table (22 chars)
+_TR_TABLE = str.maketrans("ğüşıöçĞÜŞİÖÇ", "gusiocGUSIOC")
+
+
+def _normalize_title(title: str) -> str:
+    """Lowercase + Turkish transliteration + collapse whitespace."""
+    t = title.translate(_TR_TABLE).lower()
+    t = re.sub(r"[^a-z0-9\s]", " ", t)
+    return " ".join(t.split())
+
 # ---------------------------------------------------------------------------
 # Shared HTTP client settings
 # ---------------------------------------------------------------------------
 
-_TIMEOUT = httpx.Timeout(connect=5.0, read=12.0, write=5.0, pool=5.0)
+_TIMEOUT = httpx.Timeout(connect=8.0, read=15.0, write=5.0, pool=5.0)
+_MAX_RETRIES = 2
+_RETRY_STATUSES = frozenset([429, 500, 502, 503, 504])
 
-# Rotate a minimal set of headers that look like a real browser
+# Full browser-like headers including sec-* fields required by modern CDN/bot checks
 _HEADERS_TR = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
     "Referer": "https://www.trendyol.com/",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "DNT": "1",
 }
 
 _HEADERS_HB = {
     **_HEADERS_TR,
     "Referer": "https://www.hepsiburada.com/",
+    "Sec-Fetch-Site": "same-origin",
 }
+
+
+async def _fetch_html(url: str, headers: dict) -> httpx.Response | None:
+    """GET with retry on transient errors. Returns None on permanent failure."""
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(
+                headers=headers,
+                timeout=_TIMEOUT,
+                follow_redirects=True,
+                http2=True,
+            ) as client:
+                resp = await client.get(url)
+            if resp.status_code == 200:
+                return resp
+            if resp.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+                delay = 2.0 ** attempt
+                logger.debug("HTTP %s for %s, retrying in %.1fs", resp.status_code, url, delay)
+                await asyncio.sleep(delay)
+                continue
+            logger.warning("HTTP %s fetching %s", resp.status_code, url)
+            return None
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep(2.0 ** attempt)
+    if last_exc:
+        logger.warning("Fetch failed for %s: %s", url, last_exc)
+    return None
 
 
 def _to_decimal(val: Any) -> Decimal | None:
@@ -158,108 +212,102 @@ class TrendyolConnector(BaseConnector):
 
         # Try the internal search API first (returns JSON directly)
         try:
-            async with httpx.AsyncClient(
-                headers={**_HEADERS_TR, "Accept": "application/json"},
-                timeout=_TIMEOUT,
-                follow_redirects=True,
-            ) as client:
-                resp = await client.get(_TY_API_SEARCH.format(q=encoded))
-                if resp.status_code == 200:
-                    return self._parse_api_results(resp.json())
+            api_resp = await _fetch_html(
+                _TY_API_SEARCH.format(q=encoded),
+                {**_HEADERS_TR, "Accept": "application/json", "Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors"},
+            )
+            if api_resp is not None:
+                results = self._parse_api_results(api_resp.json())
+                if results:
+                    logger.info("Trendyol API search: %d results for %r", len(results), query)
+                    return results
         except Exception as exc:
             logger.debug("Trendyol API search failed: %s", exc)
 
         # Fallback: scrape the HTML search results page
-        try:
-            async with httpx.AsyncClient(
-                headers=_HEADERS_TR, timeout=_TIMEOUT, follow_redirects=True
-            ) as client:
-                resp = await client.get(_TY_SEARCH.format(q=encoded))
-                if resp.status_code == 200:
-                    return self._parse_html_results(resp.text)
-        except Exception as exc:
-            logger.warning("Trendyol HTML search failed: %s", exc)
-
+        html_resp = await _fetch_html(_TY_SEARCH.format(q=encoded), _HEADERS_TR)
+        if html_resp is not None:
+            results = self._parse_html_results(html_resp.text)
+            if results:
+                logger.info("Trendyol HTML search: %d results for %r", len(results), query)
+                return results
+            logger.warning("Trendyol HTML search: 0 results for %r (page len=%d)", query, len(html_resp.text))
         return []
 
     def _parse_api_results(self, data: dict) -> list[dict]:
-        results = []
         products = (
             data.get("result", {}).get("products")
             or data.get("products")
             or []
         )
-        for p in products[:10]:
-            url = p.get("url") or ""
-            if url and not url.startswith("http"):
-                url = f"https://www.trendyol.com{url}"
-            results.append({
-                "url": url,
-                "title": p.get("name") or p.get("title") or "",
-                "seller": p.get("merchantName") or p.get("seller") or "Trendyol",
-                "price": _to_decimal(p.get("price", {}).get("discountedPrice") or p.get("price", {}).get("sellingPrice")),
-                "currency": "TRY",
-                "image_url": p.get("imageUrl") or (p.get("images") or [None])[0],
-            })
-        return results
+        return [r for r in (self._map_product(p) for p in products[:10]) if r]
 
     def _parse_html_results(self, html: str) -> list[dict]:
         """Parse product cards from Trendyol search HTML."""
-        results: list[dict] = []
+        products: list[dict] = []
 
-        # Trendyol embeds all search state as JSON in a script tag
-        m = re.search(r'window\.__SEARCH_APP_INITIAL_STATE__\s*=\s*({.+?});\s*</script>', html, re.DOTALL)
-        if not m:
-            # Try alternate pattern
-            m = re.search(r'"products"\s*:\s*(\[.+?\])\s*,\s*"[a-z]', html, re.DOTALL)
-            if not m:
-                return []
-            try:
-                products = json.loads(m.group(1))
-            except json.JSONDecodeError:
-                return []
-        else:
+        # Primary: __SEARCH_APP_INITIAL_STATE__ JSON blob
+        m = re.search(
+            r'window\.__SEARCH_APP_INITIAL_STATE__\s*=\s*({.+?});\s*(?:window\.|</script>)',
+            html, re.DOTALL,
+        )
+        if m:
             try:
                 state = json.loads(m.group(1))
-                products = state.get("products") or state.get("result", {}).get("products") or []
+                products = (
+                    state.get("products")
+                    or state.get("result", {}).get("products")
+                    or []
+                )
             except json.JSONDecodeError:
-                return []
+                pass
 
-        for p in products[:10]:
-            url = p.get("url") or ""
-            if url and not url.startswith("http"):
-                url = f"https://www.trendyol.com{url}"
-            results.append({
-                "url": url,
-                "title": p.get("name") or p.get("title") or "",
-                "seller": p.get("merchantName") or "Trendyol",
-                "price": _to_decimal(
-                    (p.get("price") or {}).get("discountedPrice")
-                    or (p.get("price") or {}).get("sellingPrice")
-                    or p.get("priceInfo", {}).get("discountedPrice")
-                ),
-                "currency": "TRY",
-                "image_url": p.get("imageUrl"),
-            })
-        return results
+        # Fallback: bare "products" array in any script block
+        if not products:
+            m2 = re.search(r'"products"\s*:\s*(\[.+?\])\s*,\s*"[a-z]', html, re.DOTALL)
+            if m2:
+                try:
+                    products = json.loads(m2.group(1))
+                except json.JSONDecodeError:
+                    pass
+
+        return [r for r in (self._map_product(p) for p in products[:10]) if r]
+
+    def _map_product(self, p: dict) -> dict | None:
+        """Map a raw Trendyol product dict to canonical connector output."""
+        title = p.get("name") or p.get("title") or ""
+        if not title:
+            return None
+        url = p.get("url") or ""
+        if url and not url.startswith("http"):
+            url = f"https://www.trendyol.com{url}"
+        price_obj = p.get("price") or {}
+        price = _to_decimal(
+            price_obj.get("discountedPrice")
+            or price_obj.get("sellingPrice")
+            or p.get("priceInfo", {}).get("discountedPrice")
+            or p.get("priceInfo", {}).get("price")
+        )
+        return {
+            "url": url,
+            "product_url": url,
+            "title": title,
+            "normalized_title": _normalize_title(title),
+            "seller": p.get("merchantName") or p.get("seller") or "Trendyol",
+            "price": price,
+            "currency": "TRY",
+            "image_url": p.get("imageUrl") or (p.get("images") or [None])[0],
+            "merchant": self.merchant_name,
+        }
 
     # ------------------------------------------------------------------
     async def fetch_price(self, url: str) -> dict:
         if not url or "trendyol.com" not in url:
             return _failed("URL is not a Trendyol product URL")
-        try:
-            async with httpx.AsyncClient(
-                headers=_HEADERS_TR, timeout=_TIMEOUT, follow_redirects=True
-            ) as client:
-                resp = await client.get(url)
-            if resp.status_code != 200:
-                return _failed(f"HTTP {resp.status_code}")
-            return self._parse_product_page(resp.text, url)
-        except httpx.TimeoutException:
-            return _failed("Request timed out")
-        except Exception as exc:
-            logger.warning("Trendyol fetch_price error: %s", exc)
-            return _failed(str(exc))
+        resp = await _fetch_html(url, _HEADERS_TR)
+        if resp is None:
+            return _failed("Request failed after retries")
+        return self._parse_product_page(resp.text, url)
 
     async def fetch_deals(self) -> list[dict]:
         """Scrape Trendyol campaign/coupon page for active offers."""
@@ -395,85 +443,93 @@ class HepsiburadaConnector(BaseConnector):
     async def search(self, title: str, brand: str | None, model: str | None) -> list[dict]:
         query = " ".join(filter(None, [brand, model, title]))[:120]
         encoded = quote_plus(query)
-        try:
-            async with httpx.AsyncClient(
-                headers=_HEADERS_HB, timeout=_TIMEOUT, follow_redirects=True
-            ) as client:
-                resp = await client.get(_HB_SEARCH.format(q=encoded))
-            if resp.status_code != 200:
-                return []
-            return self._parse_search(resp.text)
-        except Exception as exc:
-            logger.warning("Hepsiburada search error: %s", exc)
+        resp = await _fetch_html(_HB_SEARCH.format(q=encoded), _HEADERS_HB)
+        if resp is None:
             return []
+        results = self._parse_search(resp.text)
+        if results:
+            logger.info("Hepsiburada search: %d results for %r", len(results), query)
+        else:
+            logger.warning("Hepsiburada search: 0 results for %r (page len=%d)", query, len(resp.text))
+        return results
 
     def _parse_search(self, html: str) -> list[dict]:
-        results: list[dict] = []
-
-        # Hepsiburada embeds product data as JSON in a <script id="__NEXT_DATA__"> tag
+        # Strategy 1: __NEXT_DATA__ JSON blob
         m = re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.+?)</script>', html, re.DOTALL)
         if m:
             try:
                 next_data = json.loads(m.group(1))
                 page_props = next_data.get("props", {}).get("pageProps", {})
-                # Products can be at different paths depending on page type
                 products = (
                     page_props.get("products")
-                    or page_props.get("initialState", {}).get("products", {}).get("productList", {}).get("products")
+                    or page_props.get("initialState", {})
+                       .get("products", {})
+                       .get("productList", {})
+                       .get("products")
                     or []
                 )
-                for p in products[:10]:
-                    url = p.get("url") or p.get("productGroupId") or ""
-                    if url and not url.startswith("http"):
-                        url = f"https://www.hepsiburada.com/{url}"
-                    results.append({
-                        "url": url,
-                        "title": p.get("name") or p.get("title") or "",
-                        "seller": p.get("merchantName") or p.get("seller") or "Hepsiburada",
-                        "price": _to_decimal(p.get("price") or p.get("salePrice") or p.get("discountedPrice")),
-                        "currency": "TRY",
-                        "image_url": p.get("imageUrl") or p.get("images", [None])[0],
-                    })
-                if results:
-                    return results
-            except (json.JSONDecodeError, KeyError, TypeError):
-                pass
+                if products:
+                    return [r for r in (self._map_product(p) for p in products[:10]) if r]
+            except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                logger.debug("HB __NEXT_DATA__ parse failed: %s", exc)
 
-        # Fallback: extract from data attributes in HTML
-        # <li data-sku-id="..." data-listing-id="..." ...>
-        for m2 in re.finditer(r'data-sku-id="([^"]+)"[^>]*data-listing-id="([^"]+)"', html):
-            sku = m2.group(1)
-            listing = m2.group(2)
+        # Strategy 2: data-sku-id attributes (older page format)
+        results: list[dict] = []
+        for m2 in re.finditer(
+            r'data-sku-id="([^"]+)"[^>]*>.*?data-bind="[^"]*text:\s*name[^"]*"[^>]*>([^<]+)',
+            html, re.DOTALL,
+        ):
+            sku, name = m2.group(1), m2.group(2).strip()
+            if not name:
+                continue
+            url = f"https://www.hepsiburada.com/-p-{sku}"
             results.append({
-                "url": f"https://www.hepsiburada.com/-p-{sku}",
-                "title": listing,
+                "url": url,
+                "product_url": url,
+                "title": name,
+                "normalized_title": _normalize_title(name),
                 "seller": "Hepsiburada",
                 "price": None,
                 "currency": "TRY",
                 "image_url": None,
+                "merchant": self.merchant_name,
             })
             if len(results) >= 10:
                 break
 
         return results
 
+    def _map_product(self, p: dict) -> dict | None:
+        """Map a raw Hepsiburada product dict to canonical connector output."""
+        title = p.get("name") or p.get("title") or ""
+        if not title:
+            return None
+        url = p.get("url") or p.get("productGroupId") or ""
+        if url and not url.startswith("http"):
+            url = f"https://www.hepsiburada.com/{url}"
+        price = _to_decimal(
+            p.get("price") or p.get("salePrice") or p.get("discountedPrice")
+        )
+        return {
+            "url": url,
+            "product_url": url,
+            "title": title,
+            "normalized_title": _normalize_title(title),
+            "seller": p.get("merchantName") or p.get("seller") or "Hepsiburada",
+            "price": price,
+            "currency": "TRY",
+            "image_url": p.get("imageUrl") or (p.get("images") or [None])[0],
+            "merchant": self.merchant_name,
+        }
+
     # ------------------------------------------------------------------
     async def fetch_price(self, url: str) -> dict:
         if not url or "hepsiburada.com" not in url:
             return _failed("URL is not a Hepsiburada product URL")
-        try:
-            async with httpx.AsyncClient(
-                headers=_HEADERS_HB, timeout=_TIMEOUT, follow_redirects=True
-            ) as client:
-                resp = await client.get(url)
-            if resp.status_code != 200:
-                return _failed(f"HTTP {resp.status_code}")
-            return self._parse_product_page(resp.text)
-        except httpx.TimeoutException:
-            return _failed("Request timed out")
-        except Exception as exc:
-            logger.warning("Hepsiburada fetch_price error: %s", exc)
-            return _failed(str(exc))
+        resp = await _fetch_html(url, _HEADERS_HB)
+        if resp is None:
+            return _failed("Request failed after retries")
+        return self._parse_product_page(resp.text)
 
     def _parse_product_page(self, html: str) -> dict:
         # Strategy 1: JSON-LD (most reliable on Hepsiburada)
@@ -598,11 +654,33 @@ class HepsiburadaConnector(BaseConnector):
 # ---------------------------------------------------------------------------
 
 class GenericConnector(BaseConnector):
+    """
+    Cross-merchant fallback: aggregates results from all registered connectors.
+    Used when the merchant on an order does not match any specific connector.
+    """
     merchant_name = "generic"
     domain = ""
 
     async def search(self, title: str, brand: str | None, model: str | None) -> list[dict]:
-        return []
+        """Search all registered connectors in parallel and merge results."""
+        if not _CONNECTORS:
+            return []
+        tasks = [conn.search(title, brand, model) for conn in _CONNECTORS.values()]
+        all_results = await asyncio.gather(*tasks, return_exceptions=True)
+        merged: list[dict] = []
+        for results in all_results:
+            if isinstance(results, list):
+                merged.extend(results)
+        # Deduplicate by normalized_title, keep first occurrence
+        seen: set[str] = set()
+        deduped: list[dict] = []
+        for r in merged:
+            key = r.get("normalized_title") or r.get("title", "")
+            if key and key not in seen:
+                seen.add(key)
+                deduped.append(r)
+        logger.info("GenericConnector aggregated %d results", len(deduped))
+        return deduped[:10]
 
     async def fetch_price(self, url: str) -> dict:
         """Try JSON-LD extraction on any product URL as best-effort."""

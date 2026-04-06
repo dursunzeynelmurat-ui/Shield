@@ -111,7 +111,16 @@ async def catalog_search(
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
 ) -> Any:
-    return await search_products(db, q, category, brand, page, page_size)
+    result = await search_products(db, q, category, brand, page, page_size)
+
+    # Live fallback: when the catalog has no match for a keyword query,
+    # call connectors, ingest results, and re-query.  Skipped when filtering
+    # by category/brand alone (no keyword) or when results are already found.
+    if result["total"] == 0 and q and not category:
+        from app.catalog.live import live_search_and_seed  # noqa: PLC0415
+        result = await live_search_and_seed(db, q, brand, page, page_size)
+
+    return result
 
 
 @router.get("/products/{product_id}")

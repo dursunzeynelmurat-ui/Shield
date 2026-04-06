@@ -18,7 +18,7 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import MerchantOffer, Product
+from app.models import MerchantOffer, PriceHistory, Product
 from app.catalog.classifier import (
     assign_category_to_product,
     extract_category_string,
@@ -164,7 +164,19 @@ async def upsert_product(
             in_stock=in_stock,
         )
         db.add(offer)
+        # Record initial price in history
+        if effective_price is not None:
+            db.add(PriceHistory(
+                product_id=product.id,
+                merchant=merchant,
+                price=effective_price,
+                currency=currency,
+            ))
     else:
+        price_changed = (
+            effective_price is not None
+            and offer.effective_price != effective_price
+        )
         offer.listed_price = listed_price
         offer.shipping_price = shipping_price
         offer.effective_price = effective_price
@@ -172,6 +184,14 @@ async def upsert_product(
         offer.currency = currency
         if offer_url:
             offer.url = str(offer_url)
+        # Record price change in history
+        if price_changed:
+            db.add(PriceHistory(
+                product_id=product.id,
+                merchant=merchant,
+                price=effective_price,
+                currency=currency,
+            ))
 
     return product, created
 
