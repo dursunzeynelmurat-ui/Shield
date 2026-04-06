@@ -81,6 +81,8 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:8000
     ports:
       - "3000:3000"
     environment:
